@@ -2,15 +2,12 @@
   "required": true,
   "minVersion": "0.8",
   "package": "net.z2six.ezbalance.mixin",
-  "refmap": "${mod_id}.refmap.json",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
   "client": [
-    "net.z2six.ezbalance.mixin.MixinTitleScreen"
   ],
   "server": [],
   "injectors": {
     "defaultRequire": 1
   }
 }
-  
