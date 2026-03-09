@@ -6,7 +6,6 @@
   "compatibilityLevel": "JAVA_18",
   "mixins": [],
   "client": [
-    "net.z2six.ezbalance.mixin.MixinMinecraft"
   ],
   "server": [],
   "injectors": {
