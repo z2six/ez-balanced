@@ -9,6 +9,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
+import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
 import net.z2six.ezbalance.balance.EzBalanceItemRule;
 import net.z2six.ezbalance.balance.EzBalanceRarityDefinition;
 import net.z2six.ezbalance.balance.EzBalanceRuleMutations;
@@ -56,6 +57,8 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private static final int LEFT_BUTTON_H = 24;
     private static final int LEFT_RESET_LABEL_X = 0;
     private static final int LEFT_RESET_ROW_Y = 72;
+    private static final int LEFT_RESET_BUTTON_Y = LEFT_RESET_ROW_Y + 36;
+    private static final int LEFT_RESET_TOGGLE_Y = LEFT_RESET_BUTTON_Y + 6;
     private static final int LEFT_ENCHANT_ROW_Y = 108;
 
     private final EzBalanceConfig workingConfig;
@@ -63,6 +66,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private final List<String> visibleItems = new ArrayList<>();
     private final List<TabHitbox> tabHitboxes = new ArrayList<>();
     private final List<RarityHitbox> rarityHitboxes = new ArrayList<>();
+    private final List<ItemGroupHitbox> itemGroupHitboxes = new ArrayList<>();
     private final Map<Integer, Map<String, ItemViewData>> loadedItemPages = new LinkedHashMap<>();
     private final Map<String, ItemViewData> itemDataCache = new LinkedHashMap<>();
     private EzBalanceConfig savedConfigSnapshot;
@@ -70,6 +74,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private EditBox searchBox;
     private EditBox inlineEditBox;
     private Button applyRarityButton;
+    private Button applyItemGroupButton;
     private Button changeAttributeButton;
     private Button resetButton;
     private Button enchantRulesButton;
@@ -84,6 +89,12 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private int rarityPickerY = 244;
     private int rarityPickerWidth = 240;
     private String rarityPickerTargetItemId = "";
+    private boolean itemGroupPickerOpen;
+    private int itemGroupPickerScroll;
+    private int itemGroupPickerX = 34;
+    private int itemGroupPickerY = 280;
+    private int itemGroupPickerWidth = 240;
+    private String itemGroupPickerTargetItemId = "";
     private String inlineEditItemId = "";
     private String inlineEditAttributeId = "";
     private long lastTableClickAt;
@@ -102,7 +113,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private String resizingColumnKey = "";
     private int resizeStartWidth;
     private double resizeStartMouseX;
-    private TableLayout cachedLayout = new TableLayout(42, 160, 0, 0, 88, List.of());
+    private TableLayout cachedLayout = new TableLayout(42, 160, 0, 0, 88, 88, List.of());
     private TableColumns cachedLayoutColumns = new TableColumns(false, false, List.of());
     private boolean layoutDirty = true;
     private long lastSearchEditAt;
@@ -132,14 +143,16 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
         this.addRenderableWidget(customButton("<", this.width - 146, 26, 28, 20, button -> shiftTabs(-1)));
         this.addRenderableWidget(customButton(">", this.width - 114, 26, 28, 20, button -> shiftTabs(1)));
-        this.addRenderableWidget(customButton("Rarities", this.width - 328, this.height - 28, 76, 20, button -> this.minecraft.setScreen(new EzBalanceRarityScreen(this, this.workingConfig))));
+        this.addRenderableWidget(customButton("Rarities", this.width - 412, this.height - 28, 76, 20, button -> this.minecraft.setScreen(new EzBalanceRarityScreen(this, this.workingConfig))));
+        this.addRenderableWidget(customButton("Item Groups", this.width - 330, this.height - 28, 78, 20, button -> this.minecraft.setScreen(new EzBalanceItemGroupScreen(this, this.workingConfig))));
         this.addRenderableWidget(customButton("Edit Tab", this.width - 246, this.height - 28, 72, 20, button -> this.minecraft.setScreen(new EzBalanceTabScreen(this, this.workingConfig, this.selectedTabId))));
         this.addRenderableWidget(customButton("Save", this.width - 168, this.height - 28, 70, 20, button -> saveToServer()));
         this.addRenderableWidget(customButton("Close", this.width - 90, this.height - 28, 70, 20, button -> this.onClose()));
         this.applyRarityButton = this.addRenderableWidget(customButton("Apply Rarity", 34, 216, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openBatchRarityPicker()));
-        this.changeAttributeButton = this.addRenderableWidget(customButton("Change Attribute", 34, 252, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openAttributeEditor()));
-        this.resetButton = this.addRenderableWidget(customButton("Reset", 176, 286, 112, LEFT_BUTTON_H, button -> resetCurrentScope()));
-        this.enchantRulesButton = this.addRenderableWidget(customButton("Enchant Rules", 34, 322, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openEnchantmentEditor()));
+        this.applyItemGroupButton = this.addRenderableWidget(customButton("Apply Item Group", 34, 252, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openBatchItemGroupPicker()));
+        this.changeAttributeButton = this.addRenderableWidget(customButton("Change Attribute", 34, 288, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openAttributeEditor()));
+        this.resetButton = this.addRenderableWidget(customButton("Reset", 176, 322, 112, LEFT_BUTTON_H, button -> resetCurrentScope()));
+        this.enchantRulesButton = this.addRenderableWidget(customButton("Enchant Rules", 34, 358, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openEnchantmentEditor()));
 
         clampTabOffset();
         positionLeftPanelWidgets();
@@ -154,9 +167,10 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private void positionLeftPanelWidgets() {
         positionLeftPanelWidget(this.applyRarityButton, 0, 0, LEFT_BUTTON_W);
-        positionLeftPanelWidget(this.changeAttributeButton, 0, LEFT_BUTTON_H + LEFT_ROW_GAP, LEFT_BUTTON_W);
-        positionLeftPanelWidget(this.resetButton, LEFT_CONTENT_WIDTH - 112, LEFT_RESET_ROW_Y, 112);
-        positionLeftPanelWidget(this.enchantRulesButton, 0, LEFT_ENCHANT_ROW_Y, LEFT_BUTTON_W);
+        positionLeftPanelWidget(this.applyItemGroupButton, 0, LEFT_BUTTON_H + LEFT_ROW_GAP, LEFT_BUTTON_W);
+        positionLeftPanelWidget(this.changeAttributeButton, 0, (LEFT_BUTTON_H + LEFT_ROW_GAP) * 2, LEFT_BUTTON_W);
+        positionLeftPanelWidget(this.resetButton, LEFT_CONTENT_WIDTH - 112, LEFT_RESET_BUTTON_Y, 112);
+        positionLeftPanelWidget(this.enchantRulesButton, 0, LEFT_ENCHANT_ROW_Y + 36, LEFT_BUTTON_W);
     }
 
     private void positionLeftPanelWidget(Button button, int localX, int localY, int width) {
@@ -182,7 +196,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     }
 
     private void openBatchRarityPicker() {
-        if (this.selectedItems.isEmpty()) {
+        if (getActionTargetItems().isEmpty()) {
             return;
         }
         if (this.rarityPickerOpen && this.rarityPickerTargetItemId.isBlank()) {
@@ -197,6 +211,24 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         this.rarityPickerY = 244;
         this.rarityPickerWidth = 240;
         this.rarityPickerScroll = 0;
+    }
+
+    private void openBatchItemGroupPicker() {
+        if (getActionTargetItems().isEmpty()) {
+            return;
+        }
+        if (this.itemGroupPickerOpen && this.itemGroupPickerTargetItemId.isBlank()) {
+            closeItemGroupPicker();
+            return;
+        }
+
+        stopInlineEdit(false);
+        this.itemGroupPickerOpen = true;
+        this.itemGroupPickerTargetItemId = "";
+        this.itemGroupPickerX = 34;
+        this.itemGroupPickerY = 280;
+        this.itemGroupPickerWidth = 240;
+        this.itemGroupPickerScroll = 0;
     }
 
     private void openCellRarityPicker(TableCellHitbox cell) {
@@ -216,13 +248,31 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         this.rarityHitboxes.clear();
     }
 
+    private void openCellItemGroupPicker(TableCellHitbox cell) {
+        stopInlineEdit(false);
+        this.itemGroupPickerOpen = true;
+        this.itemGroupPickerTargetItemId = cell.itemId();
+        this.itemGroupPickerX = cell.x1();
+        this.itemGroupPickerY = cell.y2() + 4;
+        this.itemGroupPickerWidth = Math.max(150, cell.x2() - cell.x1());
+        this.itemGroupPickerScroll = 0;
+    }
+
+    private void closeItemGroupPicker() {
+        this.itemGroupPickerOpen = false;
+        this.itemGroupPickerScroll = 0;
+        this.itemGroupPickerTargetItemId = "";
+        this.itemGroupHitboxes.clear();
+    }
+
     private void openAttributeEditor() {
-        LinkedHashSet<String> targetItems = getSelectedTargetItems();
+        LinkedHashSet<String> targetItems = getActionTargetItems();
         if (targetItems.isEmpty()) {
             return;
         }
         stopInlineEdit(true);
         closeRarityPicker();
+        closeItemGroupPicker();
         EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, targetItems);
         this.minecraft.setScreen(new EzBalanceAttributeBatchScreen(this, this.workingConfig, targetItems, getEditableTabAttributes()));
     }
@@ -234,12 +284,14 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         }
         stopInlineEdit(true);
         closeRarityPicker();
+        closeItemGroupPicker();
         this.minecraft.setScreen(new EzBalanceEnchantmentScreen(this, this.workingConfig, targetItems));
     }
 
     private void openFullAttributeEditor(String itemId) {
         stopInlineEdit(true);
         closeRarityPicker();
+        closeItemGroupPicker();
         EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(itemId));
         this.minecraft.setScreen(new EzBalanceAttributeBatchScreen(this, this.workingConfig, Set.of(itemId), getEditableAttributesForItem(itemId), true));
     }
@@ -273,6 +325,8 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         this.workingConfig.tabs.putAll(source.tabs);
         this.workingConfig.rarities.clear();
         this.workingConfig.rarities.putAll(source.rarities);
+        this.workingConfig.itemGroups.clear();
+        this.workingConfig.itemGroups.putAll(source.itemGroups);
         this.workingConfig.items.clear();
         this.workingConfig.items.putAll(source.items);
         this.workingConfig.originalAttributes.clear();
@@ -283,7 +337,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         if (!this.rarityPickerTargetItemId.isBlank()) {
             applyRarityToItem(this.rarityPickerTargetItemId, rarityId);
         } else {
-            List<String> editableItems = getBatchEditableItems();
+            List<String> editableItems = getActionEditableItems();
             EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, editableItems);
             for (String itemId : editableItems) {
                 applyRarityToItem(itemId, rarityId);
@@ -293,13 +347,32 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         refreshItems();
     }
 
+    private void applyItemGroupSelection(String itemGroupId) {
+        if (!this.itemGroupPickerTargetItemId.isBlank()) {
+            applyItemGroupToItem(this.itemGroupPickerTargetItemId, itemGroupId);
+        } else {
+            List<String> editableItems = getActionEditableItems();
+            EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, editableItems);
+            for (String itemId : editableItems) {
+                applyItemGroupToItem(itemId, itemGroupId);
+            }
+        }
+        closeItemGroupPicker();
+        refreshItems();
+    }
+
     private void applyRarityToItem(String itemId, String rarityId) {
         EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(itemId));
         EzBalanceRuleMutations.applyScopedRarity(this.workingConfig, itemId, rarityId, getEditableTabAttributes());
     }
 
-    private List<String> getBatchEditableItems() {
-        return getSelectedItemsInDisplayOrder().stream()
+    private void applyItemGroupToItem(String itemId, String itemGroupId) {
+        EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(itemId));
+        EzBalanceRuleMutations.applyScopedItemGroup(this.workingConfig, itemId, itemGroupId, getEditableTabAttributes());
+    }
+
+    private List<String> getActionEditableItems() {
+        return getActionTargetItems().stream()
                 .filter(itemId -> !isLocked(itemId))
                 .toList();
     }
@@ -311,6 +384,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     public void refreshItems() {
         stopInlineEdit(false);
         closeRarityPicker();
+        closeItemGroupPicker();
         this.appliedSearchValue = this.searchBox == null ? "" : this.searchBox.getValue();
         this.pendingSearchRefresh = false;
         if (!this.workingConfig.tabs.containsKey(this.selectedTabId)) {
@@ -482,7 +556,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         Item item = EzBalanceClientCatalog.getItem(itemId);
         Map<String, Double> baseAttributes = EzBalanceRuntime.collectBaseAttributes(item.getDefaultInstance());
         Map<String, Double> resolvedAttributes = EzBalanceRuntime.resolveAttributeOverrides(this.workingConfig, itemId);
-        return new ItemViewData(item, baseAttributes, resolvedAttributes, getConfiguredRarityLabel(itemId), isLocked(itemId));
+        return new ItemViewData(item, baseAttributes, resolvedAttributes, getConfiguredRarityLabel(itemId), getConfiguredItemGroupLabel(itemId), isLocked(itemId));
     }
 
     private void resetCurrentScope() {
@@ -547,6 +621,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             int result = switch (this.sortMode) {
                 case ITEM -> left.compareToIgnoreCase(right);
                 case RARITY -> getRarityLabel(left).compareToIgnoreCase(getRarityLabel(right));
+                case ITEM_GROUP -> getItemGroupLabel(left).compareToIgnoreCase(getItemGroupLabel(right));
                 case ATTRIBUTE -> compareAttributeValues(left, right, this.sortAttributeId);
                 case NONE -> 0;
             };
@@ -590,6 +665,20 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 return true;
             }
             closeRarityPicker();
+        }
+
+        if (this.itemGroupPickerOpen) {
+            PopupBounds bounds = getItemGroupPickerBounds();
+            for (ItemGroupHitbox hitbox : this.itemGroupHitboxes) {
+                if (hitbox.contains(mouseX, mouseY)) {
+                    applyItemGroupSelection(hitbox.groupId());
+                    return true;
+                }
+            }
+            if (bounds.contains(mouseX, mouseY)) {
+                return true;
+            }
+            closeItemGroupPicker();
         }
 
         if (button == 0 && isInsideResetScopeToggle(mouseX, mouseY)) {
@@ -690,6 +779,10 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             openCellRarityPicker(cell);
             return true;
         }
+        if (cell.kind() == CellKind.ITEM_GROUP) {
+            openCellItemGroupPicker(cell);
+            return true;
+        }
         if (cell.kind() == CellKind.ENCHANT_RULES) {
             this.minecraft.setScreen(new EzBalanceEnchantmentScreen(this, this.workingConfig, Set.of(cell.itemId())));
             return true;
@@ -763,6 +856,17 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private LinkedHashSet<String> getSelectedTargetItems() {
         return new LinkedHashSet<>(getSelectedItemsInDisplayOrder());
+    }
+
+    private LinkedHashSet<String> getActionTargetItems() {
+        List<String> selected = getSelectedItemsInDisplayOrder();
+        if (!selected.isEmpty()) {
+            return new LinkedHashSet<>(selected);
+        }
+        if (this.searchBox != null && !this.searchBox.getValue().isBlank()) {
+            return new LinkedHashSet<>(this.visibleItems);
+        }
+        return new LinkedHashSet<>();
     }
 
     private void toggleLocked(String itemId) {
@@ -869,6 +973,15 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             if (bounds.contains(mouseX, mouseY)) {
                 int maxScroll = Math.max(0, getRarityOptions().size() - 6);
                 this.rarityPickerScroll = Math.clamp(this.rarityPickerScroll - (int) Math.signum(scrollY), 0, maxScroll);
+                return true;
+            }
+        }
+
+        if (this.itemGroupPickerOpen) {
+            PopupBounds bounds = getItemGroupPickerBounds();
+            if (bounds.contains(mouseX, mouseY)) {
+                int maxScroll = Math.max(0, getItemGroupOptions().size() - 6);
+                this.itemGroupPickerScroll = Math.clamp(this.itemGroupPickerScroll - (int) Math.signum(scrollY), 0, maxScroll);
                 return true;
             }
         }
@@ -1013,7 +1126,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private boolean isInsideResetScopeToggle(double mouseX, double mouseY) {
         int x = getLeftViewportX() + LEFT_RESET_LABEL_X - this.leftPanelScrollX;
-        int y = getLeftViewportY() + LEFT_RESET_ROW_Y + 6 - this.leftPanelScrollY;
+        int y = getLeftViewportY() + LEFT_RESET_TOGGLE_Y - this.leftPanelScrollY;
         return mouseX >= x
                 && mouseX <= x + RESET_SCOPE_SIZE
                 && mouseY >= y
@@ -1146,6 +1259,9 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         if (this.rarityPickerOpen) {
             renderRarityPicker(graphics);
         }
+        if (this.itemGroupPickerOpen) {
+            renderItemGroupPicker(graphics);
+        }
         renderHoveredItemTooltip(graphics, mouseX, mouseY);
         renderResetScopeTooltip(graphics, mouseX, mouseY);
     }
@@ -1170,14 +1286,14 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         renderCheckbox(
                 graphics,
                 getLeftViewportX() + LEFT_RESET_LABEL_X - this.leftPanelScrollX,
-                getLeftViewportY() + LEFT_RESET_ROW_Y + 6 - this.leftPanelScrollY,
+                getLeftViewportY() + LEFT_RESET_TOGGLE_Y - this.leftPanelScrollY,
                 this.resetVisibleItems
         );
         drawLabel(
                 graphics,
                 "All items in tab",
                 getLeftViewportX() + LEFT_RESET_LABEL_X + 20 - this.leftPanelScrollX,
-                getLeftViewportY() + LEFT_RESET_ROW_Y + 8 - this.leftPanelScrollY,
+                getLeftViewportY() + LEFT_RESET_TOGGLE_Y + 2 - this.leftPanelScrollY,
                 false
         );
         graphics.disableScissor();
@@ -1257,6 +1373,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             drawTrimmed(graphics, withSortIndicator("DPS", SortMode.ATTRIBUTE, EzBalanceRuntime.DPS_COLUMN_ID), tableX + layout.dpsX() - this.tableScrollX + 4, headerY + 7, layout.dpsWidth() - 8, COLOR_TEXT);
         }
         drawTrimmed(graphics, withSortIndicator("Rarity", SortMode.RARITY, null), tableX + layout.rarityX() - this.tableScrollX + 4, headerY + 7, layout.rarityWidth() - 8, COLOR_TEXT);
+        drawTrimmed(graphics, withSortIndicator("Group", SortMode.ITEM_GROUP, null), tableX + layout.itemGroupX() - this.tableScrollX + 4, headerY + 7, layout.itemGroupWidth() - 8, COLOR_TEXT);
         for (int index = 0; index < columns.attributes().size(); index++) {
             drawTrimmed(
                     graphics,
@@ -1276,6 +1393,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             renderColumnHandle(graphics, tableX + layout.dpsX() + layout.dpsWidth() - this.tableScrollX, headerY, "dps", hoveredHandle);
         }
         renderColumnHandle(graphics, tableX + layout.rarityX() + layout.rarityWidth() - this.tableScrollX, headerY, "rarity", hoveredHandle);
+        renderColumnHandle(graphics, tableX + layout.itemGroupX() + layout.itemGroupWidth() - this.tableScrollX, headerY, "item_group", hoveredHandle);
         for (int index = 0; index < columns.attributes().size(); index++) {
             String normalized = EzBalanceRuntime.normalizeAttributeId(columns.attributes().get(index));
             renderColumnHandle(graphics, tableX + layout.metricX(index) + layout.metricWidth(index) - this.tableScrollX, headerY, "attr:" + normalized, hoveredHandle);
@@ -1326,6 +1444,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 );
             }
             drawTrimmed(graphics, data.rarityLabel(), tableX + layout.rarityX() - this.tableScrollX + 4, y + 6, layout.rarityWidth() - 8, getRarityTextColor(itemId, locked));
+            drawTrimmed(graphics, data.itemGroupLabel(), tableX + layout.itemGroupX() - this.tableScrollX + 4, y + 6, layout.itemGroupWidth() - 8, locked ? COLOR_ACCENT : COLOR_TEXT);
             for (int columnIndex = 0; columnIndex < columns.attributes().size(); columnIndex++) {
                 String attributeId = EzBalanceRuntime.normalizeAttributeId(columns.attributes().get(columnIndex));
                 Double value = resolved.getOrDefault(attributeId, base.get(attributeId));
@@ -1461,6 +1580,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         int enchantRulesWidth = columns.hasEnchantRules() ? layoutConfig.getColumnWidth("enchants", 68) : 0;
         int dpsWidth = columns.hasDps() ? layoutConfig.getColumnWidth("dps", getAutoWidth("DPS", EzBalanceRuntime.DPS_COLUMN_ID, 116, 0)) : 0;
         int rarityWidth = layoutConfig.getColumnWidth("rarity", getAutoWidth("Rarity", null, 88, 0));
+        int itemGroupWidth = layoutConfig.getColumnWidth("item_group", getAutoWidth("Group", "__item_group__", 88, 0));
         List<Integer> metricWidths = new ArrayList<>();
         for (String column : columns.attributes()) {
             String normalized = EzBalanceRuntime.normalizeAttributeId(column);
@@ -1468,7 +1588,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             int fallback = getAutoWidth(humanize(normalized), normalized, 72, 0);
             metricWidths.add(layoutConfig.getColumnWidth(key, fallback));
         }
-        this.cachedLayout = new TableLayout(lockWidth, itemWidth, enchantRulesWidth, dpsWidth, rarityWidth, metricWidths);
+        this.cachedLayout = new TableLayout(lockWidth, itemWidth, enchantRulesWidth, dpsWidth, rarityWidth, itemGroupWidth, metricWidths);
         this.cachedLayoutColumns = columns;
         this.layoutDirty = false;
         return this.cachedLayout;
@@ -1484,6 +1604,10 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             if ("Rarity".equals(header)) {
                 for (String itemId : loadedItems) {
                     width = Math.max(width, this.font.width(getRarityLabel(itemId)) + 16);
+                }
+            } else if ("Group".equals(header) || "__item_group__".equals(attributeId)) {
+                for (String itemId : loadedItems) {
+                    width = Math.max(width, this.font.width(getItemGroupLabel(itemId)) + 16);
                 }
             }
         } else {
@@ -1550,6 +1674,11 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             return new ColumnResizeHitbox("rarity", layout.rarityWidth());
         }
 
+        rightEdge = tableX + layout.itemGroupX() + layout.itemGroupWidth() - this.tableScrollX;
+        if (Math.abs(mouseX - rightEdge) <= threshold) {
+            return new ColumnResizeHitbox("item_group", layout.itemGroupWidth());
+        }
+
         for (int index = 0; index < columns.attributes().size(); index++) {
             rightEdge = tableX + layout.metricX(index) + layout.metricWidth(index) - this.tableScrollX;
             if (Math.abs(mouseX - rightEdge) <= threshold) {
@@ -1591,6 +1720,37 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         }
     }
 
+    private void renderItemGroupPicker(GuiGraphics graphics) {
+        this.itemGroupHitboxes.clear();
+        List<String> options = getItemGroupOptions();
+        PopupBounds bounds = getItemGroupPickerBounds();
+        int rowHeight = 20;
+        drawPanel(graphics, bounds.x1(), bounds.y1(), bounds.x2(), bounds.y2(), false);
+        drawLabel(graphics, "Select item group", bounds.x1() + 10, bounds.y1() + 10, true);
+        if (this.workingConfig.itemGroups.isEmpty()) {
+            drawLabel(graphics, "No item groups configured yet.", bounds.x1() + 10, bounds.y1() + 24, false);
+        }
+
+        for (int row = 0; row < bounds.visibleRows(); row++) {
+            int index = this.itemGroupPickerScroll + row;
+            if (index >= options.size()) {
+                break;
+            }
+            String itemGroupId = options.get(index);
+            int y = bounds.y1() + 28 + row * rowHeight;
+            graphics.fill(bounds.x1() + 8, y, bounds.x2() - 8, y + rowHeight - 2, row % 2 == 0 ? COLOR_SURFACE : COLOR_SURFACE_ALT);
+            graphics.drawString(
+                    this.font,
+                    getItemGroupOptionLabel(itemGroupId),
+                    bounds.x1() + 16,
+                    y + 6,
+                    itemGroupId.equals(getPickerSelectedItemGroup()) || (itemGroupId.isBlank() && getPickerSelectedItemGroup().isBlank()) ? COLOR_TEXT : COLOR_MUTED,
+                    false
+            );
+            this.itemGroupHitboxes.add(new ItemGroupHitbox(itemGroupId, bounds.x1() + 8, y, bounds.x2() - 8, y + rowHeight - 2));
+        }
+    }
+
     private PopupBounds getRarityPickerBounds() {
         int visibleRows = Math.min(6, Math.max(1, getRarityOptions().size()));
         int height = 10 + visibleRows * 20 + 38;
@@ -1606,6 +1766,21 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         return options;
     }
 
+    private PopupBounds getItemGroupPickerBounds() {
+        int visibleRows = Math.min(6, Math.max(1, getItemGroupOptions().size()));
+        int height = 10 + visibleRows * 20 + 38;
+        int x1 = Math.clamp(this.itemGroupPickerX, 20, this.width - this.itemGroupPickerWidth - 20);
+        int y1 = Math.clamp(this.itemGroupPickerY, 40, this.height - height - 44);
+        return new PopupBounds(x1, y1, x1 + this.itemGroupPickerWidth, y1 + height, visibleRows);
+    }
+
+    private List<String> getItemGroupOptions() {
+        List<String> options = new ArrayList<>();
+        options.add("");
+        options.addAll(this.workingConfig.itemGroups.keySet());
+        return options;
+    }
+
     private String getPickerSelectedRarity() {
         if (!this.rarityPickerTargetItemId.isBlank()) {
             EzBalanceItemRule rule = this.workingConfig.items.get(this.rarityPickerTargetItemId);
@@ -1617,6 +1792,19 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         String itemId = this.selectedItems.iterator().next();
         EzBalanceItemRule rule = this.workingConfig.items.get(itemId);
         return rule == null ? "" : rule.rarityId;
+    }
+
+    private String getPickerSelectedItemGroup() {
+        if (!this.itemGroupPickerTargetItemId.isBlank()) {
+            EzBalanceItemRule rule = this.workingConfig.items.get(this.itemGroupPickerTargetItemId);
+            return rule == null ? "" : rule.itemGroupId;
+        }
+        List<String> targets = new ArrayList<>(getActionTargetItems());
+        if (targets.size() != 1) {
+            return "";
+        }
+        EzBalanceItemRule rule = this.workingConfig.items.get(targets.getFirst());
+        return rule == null ? "" : rule.itemGroupId;
     }
 
     private String getRarityOptionLabel(String rarityId) {
@@ -1644,9 +1832,30 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         return getRarityOptionLabel(rule.rarityId);
     }
 
+    private String getConfiguredItemGroupLabel(String itemId) {
+        EzBalanceItemRule rule = this.workingConfig.items.get(itemId);
+        if (rule == null || rule.itemGroupId.isBlank()) {
+            return "-";
+        }
+        return getItemGroupOptionLabel(rule.itemGroupId);
+    }
+
     private String getRarityLabel(String itemId) {
         ItemViewData data = this.itemDataCache.get(itemId);
         return data == null ? getConfiguredRarityLabel(itemId) : data.rarityLabel();
+    }
+
+    private String getItemGroupLabel(String itemId) {
+        ItemViewData data = this.itemDataCache.get(itemId);
+        return data == null ? getConfiguredItemGroupLabel(itemId) : data.itemGroupLabel();
+    }
+
+    private String getItemGroupOptionLabel(String itemGroupId) {
+        if (itemGroupId.isBlank()) {
+            return "None";
+        }
+        EzBalanceItemGroupDefinition itemGroup = this.workingConfig.itemGroups.get(itemGroupId);
+        return itemGroup == null || itemGroup.name.isBlank() ? itemGroupId : itemGroup.name;
     }
 
     private boolean hasCustomEnchantmentRules(String itemId) {
@@ -1821,6 +2030,9 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         if (contentX >= layout.rarityX() && contentX < layout.rarityX() + layout.rarityWidth()) {
             return new TableHeaderHitbox(SortMode.RARITY, null);
         }
+        if (contentX >= layout.itemGroupX() && contentX < layout.itemGroupX() + layout.itemGroupWidth()) {
+            return new TableHeaderHitbox(SortMode.ITEM_GROUP, null);
+        }
         for (int columnIndex = 0; columnIndex < columns.attributes().size(); columnIndex++) {
             int x1 = layout.metricX(columnIndex);
             int x2 = x1 + layout.metricWidth(columnIndex);
@@ -1928,6 +2140,17 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                     y2
             );
         }
+        if (contentX >= layout.itemGroupX() && contentX < layout.itemGroupX() + layout.itemGroupWidth()) {
+            return new TableCellHitbox(
+                    itemId,
+                    CellKind.ITEM_GROUP,
+                    null,
+                    getTableX() + layout.itemGroupX() - this.tableScrollX,
+                    y1,
+                    getTableX() + layout.itemGroupX() - this.tableScrollX + layout.itemGroupWidth(),
+                    y2
+            );
+        }
         for (int columnIndex = 0; columnIndex < columns.attributes().size(); columnIndex++) {
             int x1 = layout.metricX(columnIndex);
             int x2 = x1 + layout.metricWidth(columnIndex);
@@ -1972,7 +2195,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         );
     }
 
-    private record TableLayout(int lockWidth, int itemWidth, int enchantRulesWidth, int dpsWidth, int rarityWidth, List<Integer> metricWidths) {
+    private record TableLayout(int lockWidth, int itemWidth, int enchantRulesWidth, int dpsWidth, int rarityWidth, int itemGroupWidth, List<Integer> metricWidths) {
         int lockX() {
             return 0;
         }
@@ -1993,8 +2216,12 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             return dpsX() + this.dpsWidth;
         }
 
+        int itemGroupX() {
+            return rarityX() + this.rarityWidth;
+        }
+
         int contentWidth() {
-            int width = rarityX() + this.rarityWidth;
+            int width = itemGroupX() + this.itemGroupWidth;
             for (int metricWidth : this.metricWidths) {
                 width += metricWidth;
             }
@@ -2002,7 +2229,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         }
 
         int metricX(int index) {
-            int x = rarityX() + this.rarityWidth;
+            int x = itemGroupX() + this.itemGroupWidth;
             for (int currentIndex = 0; currentIndex < index; currentIndex++) {
                 x += metricWidth(currentIndex);
             }
@@ -2020,6 +2247,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         ENCHANT_RULES,
         DPS,
         RARITY,
+        ITEM_GROUP,
         ATTRIBUTE
     }
 
@@ -2027,6 +2255,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         NONE,
         ITEM,
         RARITY,
+        ITEM_GROUP,
         ATTRIBUTE
     }
 
@@ -2047,6 +2276,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             Map<String, Double> baseAttributes,
             Map<String, Double> resolvedAttributes,
             String rarityLabel,
+            String itemGroupLabel,
             boolean locked
     ) {
     }
@@ -2064,6 +2294,12 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     }
 
     private record RarityHitbox(String rarityId, int x1, int y1, int x2, int y2) {
+        boolean contains(double mouseX, double mouseY) {
+            return mouseX >= this.x1 && mouseX <= this.x2 && mouseY >= this.y1 && mouseY <= this.y2;
+        }
+    }
+
+    private record ItemGroupHitbox(String groupId, int x1, int y1, int x2, int y2) {
         boolean contains(double mouseX, double mouseY) {
             return mouseX >= this.x1 && mouseX <= this.x2 && mouseY >= this.y1 && mouseY <= this.y2;
         }

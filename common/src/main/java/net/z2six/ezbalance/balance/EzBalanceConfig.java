@@ -13,6 +13,7 @@ public final class EzBalanceConfig {
     public int schemaVersion = CURRENT_SCHEMA;
     public Map<String, EzBalanceTabDefinition> tabs = new LinkedHashMap<>();
     public Map<String, EzBalanceRarityDefinition> rarities = new LinkedHashMap<>();
+    public Map<String, EzBalanceItemGroupDefinition> itemGroups = new LinkedHashMap<>();
     public Map<String, EzBalanceItemRule> items = new LinkedHashMap<>();
     public Map<String, Map<String, Double>> originalAttributes = new LinkedHashMap<>();
 
@@ -60,6 +61,9 @@ public final class EzBalanceConfig {
         if (this.rarities == null) {
             this.rarities = new LinkedHashMap<>();
         }
+        if (this.itemGroups == null) {
+            this.itemGroups = new LinkedHashMap<>();
+        }
         if (this.items == null) {
             this.items = new LinkedHashMap<>();
         }
@@ -95,10 +99,19 @@ public final class EzBalanceConfig {
         });
 
         this.rarities.values().forEach(rarity -> rarity.attributeValues = normalizeAttributeMap(rarity.attributeValues));
+        this.itemGroups.values().forEach(group -> {
+            group.attributeValues = normalizeAttributeMap(group.attributeValues);
+            if (group.allowedEnchantments == null) {
+                group.allowedEnchantments = new LinkedHashSet<>();
+            }
+        });
         this.items.values().forEach(rule -> {
             rule.attributeOverrides = normalizeAttributeMap(rule.attributeOverrides);
             if (rule.appliedRarityAttributes == null) {
                 rule.appliedRarityAttributes = new LinkedHashSet<>();
+            }
+            if (rule.appliedItemGroupAttributes == null) {
+                rule.appliedItemGroupAttributes = new LinkedHashSet<>();
             }
             if (rule.allowedEnchantments == null) {
                 rule.allowedEnchantments = new LinkedHashSet<>();
@@ -107,6 +120,10 @@ public final class EzBalanceConfig {
                 rule.blockedEnchantments = new LinkedHashSet<>();
             }
             rule.appliedRarityAttributes = rule.appliedRarityAttributes.stream()
+                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .filter(value -> !value.isBlank())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            rule.appliedItemGroupAttributes = rule.appliedItemGroupAttributes.stream()
                     .map(EzBalanceRuntime::normalizeAttributeId)
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(LinkedHashSet::new));

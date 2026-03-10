@@ -137,6 +137,22 @@ public final class EzBalanceRuntime {
             }
         }
 
+        if (!rule.itemGroupId.isBlank()) {
+            EzBalanceItemGroupDefinition itemGroup = config.itemGroups.get(rule.itemGroupId);
+            if (itemGroup != null && itemGroup.attributeValues != null) {
+                if (rule.appliedItemGroupAttributes == null || rule.appliedItemGroupAttributes.isEmpty()) {
+                    resolved.putAll(itemGroup.attributeValues);
+                } else {
+                    for (String attributeId : rule.appliedItemGroupAttributes) {
+                        Double value = itemGroup.attributeValues.get(attributeId);
+                        if (value != null) {
+                            resolved.put(attributeId, value);
+                        }
+                    }
+                }
+            }
+        }
+
         if (rule.attributeOverrides != null) {
             resolved.putAll(rule.attributeOverrides);
         }
@@ -187,8 +203,9 @@ public final class EzBalanceRuntime {
 
     public static boolean isEnchantmentAllowed(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment, boolean defaultAllowed) {
         EzBalanceItemRule rule = config.items.get(itemId);
+        boolean groupAdjustedAllowed = isEnchantmentAllowedByItemGroup(config, itemId, enchantment, defaultAllowed);
         if (rule == null) {
-            return defaultAllowed;
+            return groupAdjustedAllowed;
         }
 
         String enchantmentId = getEnchantmentId(enchantment);
@@ -201,7 +218,7 @@ public final class EzBalanceRuntime {
         if (rule.restrictEnchantments) {
             return false;
         }
-        return defaultAllowed;
+        return groupAdjustedAllowed;
     }
 
     public static boolean isEnchantmentExplicitlyAllowed(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment) {
@@ -234,7 +251,47 @@ public final class EzBalanceRuntime {
 
     public static boolean hasCustomEnchantmentRules(EzBalanceConfig config, String itemId) {
         EzBalanceItemRule rule = config.items.get(itemId);
-        return rule != null && rule.hasCustomEnchantmentRules();
+        if (rule != null && rule.hasCustomEnchantmentRules()) {
+            return true;
+        }
+        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
+        return itemGroup != null && (itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty());
+    }
+
+    public static EzBalanceItemGroupDefinition getAssignedItemGroup(EzBalanceConfig config, String itemId) {
+        EzBalanceItemRule rule = config.items.get(itemId);
+        if (rule == null || rule.itemGroupId.isBlank()) {
+            return null;
+        }
+        return config.itemGroups.get(rule.itemGroupId);
+    }
+
+    public static boolean isEnchantmentAllowedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment, boolean defaultAllowed) {
+        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
+        if (itemGroup == null) {
+            return defaultAllowed;
+        }
+        String enchantmentId = getEnchantmentId(enchantment);
+        if (itemGroup.allowedEnchantments.contains(enchantmentId)) {
+            return true;
+        }
+        if (itemGroup.forceDisabledEnchants && defaultAllowed) {
+            return false;
+        }
+        return defaultAllowed;
+    }
+
+    public static boolean isEnchantmentExplicitlyAllowedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment) {
+        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
+        return itemGroup != null && itemGroup.allowedEnchantments.contains(getEnchantmentId(enchantment));
+    }
+
+    public static boolean isEnchantmentExplicitlyBlockedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment, boolean defaultAllowed) {
+        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
+        return itemGroup != null
+                && itemGroup.forceDisabledEnchants
+                && defaultAllowed
+                && !itemGroup.allowedEnchantments.contains(getEnchantmentId(enchantment));
     }
 
     public static boolean matchesTab(EzBalanceTabDefinition tab, Item item) {
@@ -323,6 +380,13 @@ public final class EzBalanceRuntime {
             return List.of(
                     Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY),
                     Component.literal("Custom enchant rules: " + (rule.allowedEnchantments.size() + rule.blockedEnchantments.size())).withStyle(ChatFormatting.DARK_GRAY)
+            );
+        }
+        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
+        if (itemGroup != null && (itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty())) {
+            return List.of(
+                    Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY),
+                    Component.literal("Custom enchant rules: " + itemGroup.allowedEnchantments.size()).withStyle(ChatFormatting.DARK_GRAY)
             );
         }
         return List.of(Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY));

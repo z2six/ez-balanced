@@ -97,6 +97,12 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
                 .orElse(false);
     }
 
+    private boolean isCompatibleBeforeItemOverrides(String itemId, String enchantmentId) {
+        return EzBalanceClientCatalog.getEnchantment(enchantmentId)
+                .map(enchantment -> EzBalanceRuntime.isEnchantmentAllowedByItemGroup(this.config, itemId, enchantment, isDefaultCompatible(itemId, enchantmentId)))
+                .orElse(false);
+    }
+
     private boolean isExplicitlyAllowed(String itemId, String enchantmentId) {
         EzBalanceItemRule rule = this.config.items.get(itemId);
         return rule != null && rule.allowedEnchantments.contains(enchantmentId);
@@ -105,6 +111,18 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
     private boolean isExplicitlyBlocked(String itemId, String enchantmentId) {
         EzBalanceItemRule rule = this.config.items.get(itemId);
         return rule != null && rule.blockedEnchantments.contains(enchantmentId);
+    }
+
+    private boolean isExplicitlyAllowedByItemGroup(String itemId, String enchantmentId) {
+        return EzBalanceClientCatalog.getEnchantment(enchantmentId)
+                .map(enchantment -> EzBalanceRuntime.isEnchantmentExplicitlyAllowedByItemGroup(this.config, itemId, enchantment))
+                .orElse(false);
+    }
+
+    private boolean isExplicitlyBlockedByItemGroup(String itemId, String enchantmentId) {
+        return EzBalanceClientCatalog.getEnchantment(enchantmentId)
+                .map(enchantment -> EzBalanceRuntime.isEnchantmentExplicitlyBlockedByItemGroup(this.config, itemId, enchantment, isDefaultCompatible(itemId, enchantmentId)))
+                .orElse(false);
     }
 
     private boolean isEnabled(String itemId, String enchantmentId) {
@@ -120,8 +138,8 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
         }
         boolean nextEnabled = !allEditableItemsEnabled(enchantmentId);
         for (String itemId : editableItems) {
-            boolean defaultAllowed = isDefaultCompatible(itemId, enchantmentId);
-            EzBalanceRuleMutations.setEnchantmentEnabled(this.config, itemId, enchantmentId, nextEnabled, defaultAllowed);
+            boolean baseAllowed = isCompatibleBeforeItemOverrides(itemId, enchantmentId);
+            EzBalanceRuleMutations.setEnchantmentEnabled(this.config, itemId, enchantmentId, nextEnabled, baseAllowed);
         }
     }
 
@@ -139,11 +157,11 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
     }
 
     private boolean anyEditableItemsExplicitAllowed(String enchantmentId) {
-        return getEditableItems().stream().anyMatch(itemId -> isExplicitlyAllowed(itemId, enchantmentId));
+        return getEditableItems().stream().anyMatch(itemId -> isExplicitlyAllowed(itemId, enchantmentId) || isExplicitlyAllowedByItemGroup(itemId, enchantmentId));
     }
 
     private boolean anyEditableItemsExplicitBlocked(String enchantmentId) {
-        return getEditableItems().stream().anyMatch(itemId -> isExplicitlyBlocked(itemId, enchantmentId));
+        return getEditableItems().stream().anyMatch(itemId -> isExplicitlyBlocked(itemId, enchantmentId) || isExplicitlyBlockedByItemGroup(itemId, enchantmentId));
     }
 
     @Override

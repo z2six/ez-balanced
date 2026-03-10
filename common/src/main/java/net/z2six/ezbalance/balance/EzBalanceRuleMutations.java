@@ -32,6 +32,29 @@ public final class EzBalanceRuleMutations {
         cleanup(config, itemId, rule);
     }
 
+    public static void applyScopedItemGroup(EzBalanceConfig config, String itemId, String itemGroupId, Iterable<String> scope) {
+        EzBalanceItemRule rule = getOrCreateRule(config, itemId);
+        rule.itemGroupId = itemGroupId == null ? "" : itemGroupId;
+        clearManualOverrides(rule, scope);
+        rule.appliedItemGroupAttributes.clear();
+        if (!rule.itemGroupId.isBlank()) {
+            for (String attributeId : scope) {
+                String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
+                if (!normalized.isBlank()) {
+                    rule.appliedItemGroupAttributes.add(normalized);
+                }
+            }
+        }
+        cleanup(config, itemId, rule);
+    }
+
+    public static void clearItemGroup(EzBalanceConfig config, String itemId) {
+        EzBalanceItemRule rule = getOrCreateRule(config, itemId);
+        rule.itemGroupId = "";
+        rule.appliedItemGroupAttributes.clear();
+        cleanup(config, itemId, rule);
+    }
+
     public static void setAttributeOverride(EzBalanceConfig config, String itemId, String attributeId, Double value) {
         String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
         if (normalized.isBlank()) {
@@ -66,6 +89,8 @@ public final class EzBalanceRuleMutations {
         EzBalanceItemRule rule = getOrCreateRule(config, itemId);
         rule.rarityId = "";
         rule.appliedRarityAttributes.clear();
+        rule.itemGroupId = "";
+        rule.appliedItemGroupAttributes.clear();
         rule.attributeOverrides.clear();
 
         Map<String, Double> original = EzBalanceRuntime.getOriginalAttributes(config, itemId);

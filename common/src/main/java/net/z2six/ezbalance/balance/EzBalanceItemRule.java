@@ -8,6 +8,8 @@ import java.util.Set;
 public final class EzBalanceItemRule {
     public String rarityId = "";
     public Set<String> appliedRarityAttributes = new LinkedHashSet<>();
+    public String itemGroupId = "";
+    public Set<String> appliedItemGroupAttributes = new LinkedHashSet<>();
     public Map<String, Double> attributeOverrides = new LinkedHashMap<>();
     public boolean locked;
     public boolean restrictEnchantments;
@@ -21,6 +23,8 @@ public final class EzBalanceItemRule {
     public boolean hasAnyChanges() {
         return !this.rarityId.isBlank()
                 || !this.appliedRarityAttributes.isEmpty()
+                || !this.itemGroupId.isBlank()
+                || !this.appliedItemGroupAttributes.isEmpty()
                 || !this.attributeOverrides.isEmpty()
                 || this.locked
                 || this.hasCustomEnchantmentRules();
