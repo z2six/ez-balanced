@@ -11,8 +11,10 @@ import net.z2six.ezbalance.balance.EzBalanceRuntime;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
     private static final int LIST_TOP = 112;
@@ -77,6 +79,7 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         this.addRenderableWidget(this.nameBox);
         this.addRenderableWidget(this.colorBox);
 
+        this.addRenderableWidget(customButton("Duplicate", this.width - 326, 56, 70, 20, button -> duplicateRarity()));
         this.addRenderableWidget(customButton("Save", this.width - 248, 56, 70, 20, button -> saveRarity()));
         this.addRenderableWidget(customButton("Delete", this.width - 170, 56, 70, 20, button -> deleteRarity()));
         this.addRenderableWidget(customButton("Back", this.width - 92, 56, 70, 20, button -> this.onClose()));
@@ -98,19 +101,19 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         this.idBox.setValue(rarity.id);
         this.nameBox.setValue(rarity.name);
         this.colorBox.setValue(String.format("%06x", rarity.color));
-        rarity.attributeValues.forEach(this::addAttributeRow);
+        rarity.attributeModifiers.forEach(this::addAttributeRow);
     }
 
-    private void addAttributeRow(String attributeId, Double value) {
+    private void addAttributeRow(String attributeId, String value) {
         EditBox attributeBox = new EditBox(this.font, 0, 0, ATTRIBUTE_BOX_WIDTH, 20, Component.literal("Attribute id"));
         attributeBox.setMaxLength(256);
         attributeBox.setValue(attributeId == null ? "" : attributeId);
         this.attributeBoxes.add(attributeBox);
         this.addRenderableWidget(attributeBox);
 
-        EditBox valueBox = new EditBox(this.font, 0, 0, VALUE_BOX_WIDTH, 20, Component.literal("Value"));
+        EditBox valueBox = new EditBox(this.font, 0, 0, VALUE_BOX_WIDTH, 20, Component.literal("Modifier"));
         valueBox.setMaxLength(32);
-        valueBox.setValue(value == null ? "" : formatValue(value));
+        valueBox.setValue(value == null ? "" : value);
         this.valueBoxes.add(valueBox);
         this.addRenderableWidget(valueBox);
     }
@@ -189,9 +192,9 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
 
         for (int index = 0; index < this.attributeBoxes.size(); index++) {
             String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
-            Double value = parseNullableDouble(this.valueBoxes.get(index).getValue());
-            if (!attributeId.isBlank() && value != null) {
-                rarity.attributeValues.put(attributeId, value);
+            String value = this.valueBoxes.get(index).getValue().trim();
+            if (!attributeId.isBlank() && isValidModifier(value)) {
+                rarity.attributeModifiers.put(attributeId, value);
             }
         }
 
@@ -205,6 +208,11 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         }
         this.config.rarities.put(id, rarity);
         this.currentRarityId = id;
+        if (this.parent instanceof EzBalanceRarityScreen screen) {
+            screen.persistChanges();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
         this.minecraft.setScreen(this.parent);
     }
 
@@ -217,7 +225,69 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
                 }
             }
         }
+        if (this.parent instanceof EzBalanceRarityScreen screen) {
+            screen.persistChanges();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
         this.minecraft.setScreen(this.parent);
+    }
+
+    private void duplicateRarity() {
+        EzBalanceRarityDefinition source = buildRarityFromFields();
+        if (source == null) {
+            return;
+        }
+        String duplicateId = generateDuplicateId(source.id.isBlank() ? sanitizeId(this.currentRarityId) : source.id);
+        source.id = duplicateId;
+        if (source.name == null || source.name.isBlank()) {
+            source.name = duplicateId;
+        } else {
+            source.name = source.name + " Copy";
+        }
+        this.config.rarities.put(duplicateId, source);
+        this.currentRarityId = duplicateId;
+        if (this.parent instanceof EzBalanceRarityScreen screen) {
+            screen.persistChanges();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
+        this.minecraft.setScreen(new EzBalanceRarityEditScreen(this.parent, this.config, duplicateId));
+    }
+
+    private EzBalanceRarityDefinition buildRarityFromFields() {
+        String baseId = sanitizeId(this.idBox.getValue());
+        if (baseId.isBlank()) {
+            baseId = sanitizeId(this.currentRarityId);
+        }
+        if (baseId.isBlank()) {
+            return null;
+        }
+        EzBalanceRarityDefinition rarity = new EzBalanceRarityDefinition();
+        rarity.id = baseId;
+        rarity.name = this.nameBox.getValue().isBlank() ? baseId : this.nameBox.getValue();
+        rarity.color = parseColor(this.colorBox.getValue());
+        for (int index = 0; index < this.attributeBoxes.size(); index++) {
+            String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
+            String value = this.valueBoxes.get(index).getValue().trim();
+            if (!attributeId.isBlank() && isValidModifier(value)) {
+                rarity.attributeModifiers.put(attributeId, value);
+            }
+        }
+        return rarity;
+    }
+
+    private String generateDuplicateId(String baseId) {
+        String root = sanitizeId(baseId);
+        if (root.isBlank()) {
+            root = "rarity";
+        }
+        String candidate = root + "_copy";
+        int index = 2;
+        while (this.config.rarities.containsKey(candidate)) {
+            candidate = root + "_copy_" + index++;
+        }
+        return candidate;
     }
 
     private int parseColor(String value) {
@@ -423,37 +493,31 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         }
 
         if (this.suggestionMatchCount > SUGGESTION_VISIBLE_ROWS) {
-            int trackX1 = bounds.x2() - 6;
-            int trackX2 = bounds.x2() - 3;
-            graphics.fill(trackX1, bounds.y1() + 4, trackX2, bounds.y2() - 4, COLOR_BORDER);
+            int trackX = bounds.x2() - 6;
             int thumbHeight = Math.max(16, (bounds.height() - 8) * SUGGESTION_VISIBLE_ROWS / Math.max(SUGGESTION_VISIBLE_ROWS, this.suggestionMatchCount));
             int maxTravel = Math.max(0, bounds.height() - 8 - thumbHeight);
             int maxScroll = Math.max(1, this.suggestionMatchCount - SUGGESTION_VISIBLE_ROWS);
             int thumbY = bounds.y1() + 4 + maxTravel * this.suggestionScroll / maxScroll;
-            graphics.fill(trackX1, thumbY, trackX2, thumbY + thumbHeight, COLOR_ACCENT);
+            EzBalanceUi.drawVerticalScrollbar(graphics, trackX, bounds.y1() + 4, bounds.y2() - 4, 3, thumbY, thumbHeight);
         }
     }
 
     private void renderVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getListRight() + TRACK_GAP;
-        int x2 = x1 + TRACK_SIZE;
-        graphics.fill(x1, LIST_TOP, x2, LIST_TOP + getListHeight(), COLOR_BORDER);
         int totalRows = this.attributeBoxes.size() + 1;
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics) {
         int y1 = LIST_TOP + getListHeight() + TRACK_GAP;
-        int y2 = y1 + TRACK_SIZE;
-        graphics.fill(getListX(), y1, getListRight(), y2, COLOR_BORDER);
         int trackWidth = getListWidth();
         int thumbWidth = Math.max(24, trackWidth * getListWidth() / Math.max(getListWidth(), CONTENT_WIDTH));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = getListX() + (getMaxScrollX() == 0 ? 0 : maxTravel * this.scrollX / getMaxScrollX());
-        graphics.fill(thumbX, y1, thumbX + thumbWidth, y2, COLOR_ACCENT);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth);
     }
 
     private int getListX() {
@@ -598,11 +662,16 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         }
 
         String query = box.getValue().trim().toLowerCase(Locale.ROOT);
+        Set<String> usedAttributes = getUsedAttributeIdsExcluding(this.suggestionTargetRow);
         this.suggestionQuery = query;
         int start = this.suggestionScroll;
         int endExclusive = start + SUGGESTION_VISIBLE_ROWS;
         int matchIndex = 0;
         for (String attributeId : this.allAttributeIds) {
+            String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
+            if (usedAttributes.contains(normalized)) {
+                continue;
+            }
             if (!query.isBlank() && !attributeId.toLowerCase(Locale.ROOT).contains(query)) {
                 continue;
             }
@@ -618,6 +687,20 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
             this.suggestionScroll = maxScroll;
             refreshSuggestions();
         }
+    }
+
+    private Set<String> getUsedAttributeIdsExcluding(int excludedRow) {
+        Set<String> used = new LinkedHashSet<>();
+        for (int index = 0; index < this.attributeBoxes.size(); index++) {
+            if (index == excludedRow) {
+                continue;
+            }
+            String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
+            if (!attributeId.isBlank()) {
+                used.add(attributeId);
+            }
+        }
+        return used;
     }
 
     private SuggestionBounds getSuggestionBounds() {
@@ -637,13 +720,15 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
         return (int) ((mouseY - bounds.y1() - 4) / SUGGESTION_ROW_HEIGHT);
     }
 
-    private String formatValue(Double value) {
-        if (value == null) {
-            return "";
+    private boolean isValidModifier(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
         }
-        return Math.abs(value - Math.rint(value)) < 0.005D
-                ? String.format(Locale.ROOT, "%.0f", value)
-                : String.format(Locale.ROOT, "%.2f", value);
+        String trimmed = value.trim();
+        if (trimmed.endsWith("%")) {
+            return parseNullableDouble(trimmed.substring(0, trimmed.length() - 1)) != null;
+        }
+        return parseNullableDouble(trimmed) != null;
     }
 
     private void renderTextboxTooltips(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -697,8 +782,8 @@ public class EzBalanceRarityEditScreen extends AbstractEzBalanceScreen {
                     this.valueBoxes.get(index),
                     mouseX,
                     mouseY,
-                    "Attribute value",
-                    "Numeric value applied when this rarity is assigned."
+                    "Rarity modifier",
+                    "Use 5 or -5 for raw change, or 5% / -5% for percentage."
             )) {
                 return;
             }

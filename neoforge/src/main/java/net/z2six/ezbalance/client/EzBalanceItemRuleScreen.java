@@ -68,30 +68,35 @@ public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
         for (String itemId : this.targetItems) {
             EzBalanceRuleMutations.setAttributeOverride(this.config, itemId, this.selectedAttributeId, value);
         }
+        EzBalanceClientPersistence.persist(this.config);
     }
 
     private void clearAttributeValue() {
         for (String itemId : this.targetItems) {
             EzBalanceRuleMutations.setAttributeOverride(this.config, itemId, this.selectedAttributeId, null);
         }
+        EzBalanceClientPersistence.persist(this.config);
     }
 
     private void applyRarity() {
         for (String itemId : this.targetItems) {
             EzBalanceRuleMutations.applyScopedRarity(this.config, itemId, this.selectedRarityId, this.attributeIds);
         }
+        EzBalanceClientPersistence.persist(this.config);
     }
 
     private void clearRarity() {
         for (String itemId : this.targetItems) {
             EzBalanceRuleMutations.clearRarity(this.config, itemId);
         }
+        EzBalanceClientPersistence.persist(this.config);
     }
 
     private void clearAllOverrides() {
         for (String itemId : this.targetItems) {
             EzBalanceRuleMutations.restoreOriginalState(this.config, itemId);
         }
+        EzBalanceClientPersistence.persist(this.config);
     }
 
     @Override

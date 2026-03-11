@@ -7,6 +7,7 @@ public final class EzBalanceRarityDefinition {
     public String id = "";
     public String name = "";
     public int color = 0xFFFFFF;
+    public Map<String, String> attributeModifiers = new LinkedHashMap<>();
     public Map<String, Double> attributeValues = new LinkedHashMap<>();
 
     public EzBalanceRarityDefinition() {}

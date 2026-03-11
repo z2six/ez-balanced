@@ -11,8 +11,10 @@ import net.z2six.ezbalance.balance.EzBalanceRuntime;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
     private static final int LIST_TOP = 112;
@@ -72,6 +74,7 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         this.addRenderableWidget(this.nameBox);
 
         this.addRenderableWidget(customButton("Enchantment rules", 444, 56, 130, 20, button -> openEnchantmentRules()));
+        this.addRenderableWidget(customButton("Duplicate", this.width - 326, 56, 70, 20, button -> duplicateItemGroup()));
         this.addRenderableWidget(customButton("Save", this.width - 248, 56, 70, 20, button -> saveItemGroup()));
         this.addRenderableWidget(customButton("Delete", this.width - 170, 56, 70, 20, button -> deleteItemGroup()));
         this.addRenderableWidget(customButton("Back", this.width - 92, 56, 70, 20, button -> this.onClose()));
@@ -171,9 +174,14 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         }
 
         String previousId = this.currentGroupId;
+        EzBalanceItemGroupDefinition existing = this.config.itemGroups.get(previousId);
         EzBalanceItemGroupDefinition group = new EzBalanceItemGroupDefinition();
         group.id = id;
         group.name = this.nameBox.getValue().isBlank() ? id : this.nameBox.getValue();
+        if (existing != null) {
+            group.forceDisabledEnchants = existing.forceDisabledEnchants;
+            group.allowedEnchantments.addAll(existing.allowedEnchantments);
+        }
         for (int index = 0; index < this.attributeBoxes.size(); index++) {
             String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
             Double value = parseNullableDouble(this.valueBoxes.get(index).getValue());
@@ -185,26 +193,51 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         if (!previousId.isBlank() && !previousId.equals(id)) {
             this.config.itemGroups.remove(previousId);
             for (EzBalanceItemRule rule : this.config.items.values()) {
-                if (previousId.equals(rule.itemGroupId)) {
-                    rule.itemGroupId = id;
+                if (rule.itemGroupIds.remove(previousId)) {
+                    rule.itemGroupIds.add(id);
+                }
+                if (rule.appliedItemGroupAttributesByGroup.containsKey(previousId)) {
+                    rule.appliedItemGroupAttributesByGroup.put(id, rule.appliedItemGroupAttributesByGroup.remove(previousId));
+                }
+                if (rule.itemGroupEnchantRuleIds.remove(previousId)) {
+                    rule.itemGroupEnchantRuleIds.add(id);
                 }
             }
         }
         this.config.itemGroups.put(id, group);
         this.currentGroupId = id;
+        persistChanges();
         this.minecraft.setScreen(this.parent);
+    }
+
+    private void duplicateItemGroup() {
+        EzBalanceItemGroupDefinition source = buildGroupFromFields();
+        if (source == null) {
+            return;
+        }
+        String duplicateId = generateDuplicateId(source.id.isBlank() ? sanitizeId(this.currentGroupId) : source.id);
+        source.id = duplicateId;
+        if (source.name == null || source.name.isBlank()) {
+            source.name = duplicateId;
+        } else {
+            source.name = source.name + " Copy";
+        }
+        this.config.itemGroups.put(duplicateId, source);
+        this.currentGroupId = duplicateId;
+        persistChanges();
+        this.minecraft.setScreen(new EzBalanceItemGroupEditScreen(this.parent, this.config, duplicateId));
     }
 
     private void deleteItemGroup() {
         if (!this.currentGroupId.isBlank()) {
             this.config.itemGroups.remove(this.currentGroupId);
             for (EzBalanceItemRule rule : this.config.items.values()) {
-                if (this.currentGroupId.equals(rule.itemGroupId)) {
-                    rule.itemGroupId = "";
-                    rule.appliedItemGroupAttributes.clear();
-                }
+                rule.itemGroupIds.remove(this.currentGroupId);
+                rule.appliedItemGroupAttributesByGroup.remove(this.currentGroupId);
+                rule.itemGroupEnchantRuleIds.remove(this.currentGroupId);
             }
         }
+        persistChanges();
         this.minecraft.setScreen(this.parent);
     }
 
@@ -233,6 +266,55 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
             }
         }
         this.currentGroupId = id;
+    }
+
+    private EzBalanceItemGroupDefinition buildGroupFromFields() {
+        String baseId = sanitizeId(this.idBox.getValue());
+        if (baseId.isBlank()) {
+            baseId = sanitizeId(this.currentGroupId);
+        }
+        if (baseId.isBlank()) {
+            return null;
+        }
+        EzBalanceItemGroupDefinition existing = this.config.itemGroups.get(this.currentGroupId);
+        EzBalanceItemGroupDefinition group = new EzBalanceItemGroupDefinition();
+        group.id = baseId;
+        group.name = this.nameBox.getValue().isBlank() ? baseId : this.nameBox.getValue();
+        if (existing != null) {
+            group.forceDisabledEnchants = existing.forceDisabledEnchants;
+            group.allowedEnchantments.addAll(existing.allowedEnchantments);
+        }
+        for (int index = 0; index < this.attributeBoxes.size(); index++) {
+            String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
+            Double value = parseNullableDouble(this.valueBoxes.get(index).getValue());
+            if (!attributeId.isBlank() && value != null) {
+                group.attributeValues.put(attributeId, value);
+            }
+        }
+        return group;
+    }
+
+    private String generateDuplicateId(String baseId) {
+        String root = sanitizeId(baseId);
+        if (root.isBlank()) {
+            root = "item_group";
+        }
+        String candidate = root + "_copy";
+        int index = 2;
+        while (this.config.itemGroups.containsKey(candidate)) {
+            candidate = root + "_copy_" + index++;
+        }
+        return candidate;
+    }
+
+    void persistChanges() {
+        if (this.parent instanceof EzBalanceItemGroupScreen screen) {
+            screen.persistChanges();
+        } else if (this.parent instanceof EzBalanceScreen screen) {
+            screen.persistWorkingConfig();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
     }
 
     @Override
@@ -428,24 +510,20 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
 
     private void renderVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getListRight() + TRACK_GAP;
-        int x2 = x1 + TRACK_SIZE;
-        graphics.fill(x1, LIST_TOP, x2, LIST_TOP + getListHeight(), COLOR_BORDER);
         int totalRows = this.attributeBoxes.size() + 1;
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics) {
         int y1 = LIST_TOP + getListHeight() + TRACK_GAP;
-        int y2 = y1 + TRACK_SIZE;
-        graphics.fill(getListX(), y1, getListRight(), y2, COLOR_BORDER);
         int trackWidth = getListWidth();
         int thumbWidth = Math.max(24, trackWidth * getListWidth() / Math.max(getListWidth(), CONTENT_WIDTH));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = getListX() + (getMaxScrollX() == 0 ? 0 : maxTravel * this.scrollX / getMaxScrollX());
-        graphics.fill(thumbX, y1, thumbX + thumbWidth, y2, COLOR_ACCENT);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth);
     }
 
     private int getListX() {
@@ -582,10 +660,15 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         }
 
         String query = box.getValue().trim().toLowerCase(Locale.ROOT);
+        Set<String> usedAttributes = getUsedAttributeIdsExcluding(this.suggestionTargetRow);
         int start = this.suggestionScroll;
         int endExclusive = start + SUGGESTION_VISIBLE_ROWS;
         int matchIndex = 0;
         for (String attributeId : this.allAttributeIds) {
+            String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
+            if (usedAttributes.contains(normalized)) {
+                continue;
+            }
             if (!query.isBlank() && !attributeId.toLowerCase(Locale.ROOT).contains(query)) {
                 continue;
             }
@@ -601,6 +684,20 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
             this.suggestionScroll = maxScroll;
             refreshSuggestions();
         }
+    }
+
+    private Set<String> getUsedAttributeIdsExcluding(int excludedRow) {
+        Set<String> used = new LinkedHashSet<>();
+        for (int index = 0; index < this.attributeBoxes.size(); index++) {
+            if (index == excludedRow) {
+                continue;
+            }
+            String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
+            if (!attributeId.isBlank()) {
+                used.add(attributeId);
+            }
+        }
+        return used;
     }
 
     private SuggestionBounds getSuggestionBounds() {

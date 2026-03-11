@@ -3,6 +3,7 @@ package net.z2six.ezbalance.balance;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public final class EzBalanceRuleMutations {
     private static final double EPSILON = 0.00001D;
@@ -32,26 +33,43 @@ public final class EzBalanceRuleMutations {
         cleanup(config, itemId, rule);
     }
 
-    public static void applyScopedItemGroup(EzBalanceConfig config, String itemId, String itemGroupId, Iterable<String> scope) {
+    public static void applyScopedItemGroup(EzBalanceConfig config, String itemId, String itemGroupId, Iterable<String> scope, boolean applyEnchantRules) {
+        if (itemGroupId == null || itemGroupId.isBlank()) {
+            clearItemGroup(config, itemId);
+            return;
+        }
         EzBalanceItemRule rule = getOrCreateRule(config, itemId);
-        rule.itemGroupId = itemGroupId == null ? "" : itemGroupId;
         clearManualOverrides(rule, scope);
-        rule.appliedItemGroupAttributes.clear();
-        if (!rule.itemGroupId.isBlank()) {
-            for (String attributeId : scope) {
-                String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
-                if (!normalized.isBlank()) {
-                    rule.appliedItemGroupAttributes.add(normalized);
-                }
+        rule.itemGroupIds.add(itemGroupId);
+        Set<String> applied = new LinkedHashSet<>();
+        for (String attributeId : scope) {
+            String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
+            if (!normalized.isBlank()) {
+                applied.add(normalized);
             }
+        }
+        rule.appliedItemGroupAttributesByGroup.put(itemGroupId, applied);
+        if (applyEnchantRules) {
+            rule.itemGroupEnchantRuleIds.add(itemGroupId);
+        } else {
+            rule.itemGroupEnchantRuleIds.remove(itemGroupId);
         }
         cleanup(config, itemId, rule);
     }
 
     public static void clearItemGroup(EzBalanceConfig config, String itemId) {
         EzBalanceItemRule rule = getOrCreateRule(config, itemId);
-        rule.itemGroupId = "";
-        rule.appliedItemGroupAttributes.clear();
+        rule.itemGroupIds.clear();
+        rule.appliedItemGroupAttributesByGroup.clear();
+        rule.itemGroupEnchantRuleIds.clear();
+        cleanup(config, itemId, rule);
+    }
+
+    public static void removeItemGroup(EzBalanceConfig config, String itemId, String itemGroupId) {
+        EzBalanceItemRule rule = getOrCreateRule(config, itemId);
+        rule.itemGroupIds.remove(itemGroupId);
+        rule.appliedItemGroupAttributesByGroup.remove(itemGroupId);
+        rule.itemGroupEnchantRuleIds.remove(itemGroupId);
         cleanup(config, itemId, rule);
     }
 
@@ -85,12 +103,26 @@ public final class EzBalanceRuleMutations {
         cleanup(config, itemId, rule);
     }
 
+    public static void setAttributeOverrideNormalized(EzBalanceConfig config, String itemId, String attributeId, Double targetValue) {
+        if (targetValue == null) {
+            setAttributeOverride(config, itemId, attributeId, null);
+            return;
+        }
+        String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
+        if (normalized.isBlank()) {
+            return;
+        }
+        double normalizedValue = EzBalanceRuntime.applyNormalization(config, itemId, normalized, targetValue);
+        setAttributeOverride(config, itemId, normalized, normalizedValue);
+    }
+
     public static void restoreOriginalState(EzBalanceConfig config, String itemId) {
         EzBalanceItemRule rule = getOrCreateRule(config, itemId);
         rule.rarityId = "";
         rule.appliedRarityAttributes.clear();
-        rule.itemGroupId = "";
-        rule.appliedItemGroupAttributes.clear();
+        rule.itemGroupIds.clear();
+        rule.appliedItemGroupAttributesByGroup.clear();
+        rule.itemGroupEnchantRuleIds.clear();
         rule.attributeOverrides.clear();
 
         Map<String, Double> original = EzBalanceRuntime.getOriginalAttributes(config, itemId);
@@ -188,11 +220,7 @@ public final class EzBalanceRuleMutations {
     }
 
     private static Map<String, Double> getBaseAttributes(EzBalanceConfig config, String itemId) {
-        Map<String, Double> captured = EzBalanceRuntime.getOriginalAttributes(config, itemId);
-        if (!captured.isEmpty()) {
-            return captured;
-        }
-        return EzBalanceRuntime.collectBaseAttributes(itemId);
+        return EzBalanceRuntime.getBaseAttributes(config, itemId);
     }
 
     private static boolean equalsNullable(Double left, Double right) {

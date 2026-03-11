@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -16,9 +17,11 @@ import net.z2six.ezbalance.balance.EzBalanceRuntime;
 import net.z2six.ezbalance.balance.EzBalanceTabDefinition;
 
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 public final class EzBalanceClientCatalog {
     private EzBalanceClientCatalog() {}
@@ -65,9 +68,42 @@ public final class EzBalanceClientCatalog {
         return BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(itemId)).orElse(Items.BARRIER);
     }
 
+    public static List<String> getItemTagIds(String itemId) {
+        Item item = getItem(itemId);
+        if (item == Items.AIR || item == Items.BARRIER && !"minecraft:barrier".equals(itemId)) {
+            return List.of();
+        }
+
+        return item.builtInRegistryHolder().tags()
+                .map(TagKey::location)
+                .map(ResourceLocation::toString)
+                .sorted(Comparator
+                        .comparing((String id) -> !id.startsWith("minecraft:"))
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
+    }
+
     public static List<String> getAllAttributeIds() {
         return BuiltInRegistries.ATTRIBUTE.keySet().stream()
                 .map(ResourceLocation::toString)
+                .sorted(Comparator
+                        .comparing((String id) -> !id.startsWith("minecraft:"))
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
+    }
+
+    public static List<String> getAllItemTagIds() {
+        Set<String> tags = new LinkedHashSet<>();
+        for (Item item : BuiltInRegistries.ITEM) {
+            if (item == Items.AIR) {
+                continue;
+            }
+            item.builtInRegistryHolder().tags()
+                    .map(TagKey::location)
+                    .map(ResourceLocation::toString)
+                    .forEach(tags::add);
+        }
+        return tags.stream()
                 .sorted(Comparator
                         .comparing((String id) -> !id.startsWith("minecraft:"))
                         .thenComparing(Comparator.naturalOrder()))

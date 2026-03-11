@@ -9,6 +9,7 @@ import net.z2six.ezbalance.balance.EzBalanceItemRule;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
     private static final int LIST_TOP = 82;
@@ -16,12 +17,22 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
     private static final int TRACK_SIZE = 4;
     private static final int TRACK_GAP = 4;
     private static final int ACTION_BUTTON_WIDTH = 62;
+    private static final int TOOLTIP_WIDTH = 332;
+    private static final int TOOLTIP_PADDING = 8;
+    private static final int TOOLTIP_LINE_HEIGHT = 12;
+    private static final int TOOLTIP_MAX_HEIGHT = 236;
+    private static final int TOOLTIP_TRACK_SIZE = 4;
 
     private final Screen parent;
     private final EzBalanceConfig config;
 
     private boolean draggingScrollbar;
+    private boolean draggingTooltipScrollbar;
     private int scrollRow;
+    private int tooltipScrollLine;
+    private String activeTooltipGroupId = "";
+    private int tooltipAnchorX;
+    private int tooltipAnchorY;
 
     public EzBalanceItemGroupScreen(Screen parent, EzBalanceConfig config) {
         super(Component.literal("Item Groups"));
@@ -37,6 +48,14 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && isInsideTooltipScrollbar(mouseX, mouseY)) {
+            this.draggingTooltipScrollbar = true;
+            updateTooltipScrollFromMouse(mouseY);
+            return true;
+        }
+        if (button == 0 && isInsideActiveTooltip(mouseX, mouseY)) {
+            return true;
+        }
         if (button == 0 && isInsideVerticalScrollbar(mouseX, mouseY)) {
             this.draggingScrollbar = true;
             updateScrollFromMouse(mouseY);
@@ -64,6 +83,13 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (isInsideActiveTooltip(mouseX, mouseY)) {
+            TooltipData tooltip = getActiveTooltipData();
+            if (tooltip != null) {
+                this.tooltipScrollLine = Math.clamp(this.tooltipScrollLine - (int) Math.signum(scrollY), 0, getTooltipMaxScrollLine(tooltip));
+                return true;
+            }
+        }
         if (isInsideList(mouseX, mouseY) || isInsideVerticalScrollbar(mouseX, mouseY)) {
             this.scrollRow = Math.clamp(this.scrollRow - (int) Math.signum(scrollY), 0, getMaxScrollRow());
             return true;
@@ -73,6 +99,10 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (this.draggingTooltipScrollbar) {
+            updateTooltipScrollFromMouse(mouseY);
+            return true;
+        }
         if (this.draggingScrollbar) {
             updateScrollFromMouse(mouseY);
             return true;
@@ -82,6 +112,7 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        this.draggingTooltipScrollbar = false;
         this.draggingScrollbar = false;
         return super.mouseReleased(mouseX, mouseY, button);
     }
@@ -95,7 +126,9 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
         renderRows(graphics, mouseX, mouseY);
         renderVerticalScrollbar(graphics);
+        updateTooltipState(mouseX, mouseY);
         renderWidgets(graphics, mouseX, mouseY, partialTick);
+        renderActiveTooltip(graphics, mouseX, mouseY);
     }
 
     private void renderRows(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -144,16 +177,11 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     private void renderVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getListRight() + TRACK_GAP;
-        int x2 = x1 + TRACK_SIZE;
-        int y1 = LIST_TOP;
-        int y2 = LIST_TOP + getListHeight();
-        graphics.fill(x1, y1, x2, y2, COLOR_BORDER);
-
         int totalRows = getGroupIds().size() + 1;
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
-        int thumbY = y1 + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
     }
 
     private int getListX() {
@@ -236,16 +264,216 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
         this.config.itemGroups.remove(groupId);
         for (EzBalanceItemRule rule : this.config.items.values()) {
-            if (groupId.equals(rule.itemGroupId)) {
-                rule.itemGroupId = "";
-                rule.appliedItemGroupAttributes.clear();
-            }
+            rule.itemGroupIds.remove(groupId);
+            rule.appliedItemGroupAttributesByGroup.remove(groupId);
+            rule.itemGroupEnchantRuleIds.remove(groupId);
         }
         this.scrollRow = Math.clamp(this.scrollRow, 0, getMaxScrollRow());
+        persistChanges();
+    }
+
+    void persistChanges() {
+        if (this.parent instanceof EzBalanceScreen screen) {
+            screen.persistWorkingConfig();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
     }
 
     private List<String> getGroupIds() {
         return new ArrayList<>(this.config.itemGroups.keySet());
+    }
+
+    private void updateTooltipState(int mouseX, int mouseY) {
+        RowHitbox hovered = getRowHitbox(mouseX, mouseY);
+        if (hovered != null && !hovered.plusRow() && !hovered.deleteButton() && !hovered.editButton()) {
+            if (!hovered.groupId().equals(this.activeTooltipGroupId)) {
+                this.tooltipScrollLine = 0;
+            }
+            this.activeTooltipGroupId = hovered.groupId();
+            this.tooltipAnchorX = mouseX;
+            this.tooltipAnchorY = mouseY;
+            return;
+        }
+        if (this.draggingTooltipScrollbar || isInsideActiveTooltip(mouseX, mouseY)) {
+            return;
+        }
+        this.activeTooltipGroupId = "";
+        this.tooltipScrollLine = 0;
+    }
+
+    private void renderActiveTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        TooltipData tooltip = getActiveTooltipData();
+        if (tooltip == null) {
+            return;
+        }
+        TooltipBounds bounds = tooltip.bounds();
+        drawPanel(graphics, bounds.x1(), bounds.y1(), bounds.x2(), bounds.y2(), true);
+        int x = bounds.x1() + TOOLTIP_PADDING;
+        int y = bounds.y1() + TOOLTIP_PADDING;
+        int visibleLineCount = getTooltipVisibleLineCount(bounds);
+        for (int index = 0; index < visibleLineCount; index++) {
+            int lineIndex = this.tooltipScrollLine + index;
+            if (lineIndex >= tooltip.lines().size()) {
+                break;
+            }
+            TooltipLine line = tooltip.lines().get(lineIndex);
+            graphics.drawString(this.font, line.text(), x, y + index * TOOLTIP_LINE_HEIGHT, line.color(), false);
+        }
+        if (tooltip.lines().size() > visibleLineCount) {
+            int thumbHeight = Math.max(18, getTooltipTrackHeight(bounds) * visibleLineCount / Math.max(visibleLineCount, tooltip.lines().size()));
+            int maxTravel = Math.max(0, getTooltipTrackHeight(bounds) - thumbHeight);
+            int thumbY = bounds.y1() + TOOLTIP_PADDING + (getTooltipMaxScrollLine(tooltip) == 0 ? 0 : maxTravel * this.tooltipScrollLine / getTooltipMaxScrollLine(tooltip));
+            EzBalanceUi.drawVerticalScrollbar(
+                    graphics,
+                    bounds.x2() - TOOLTIP_PADDING - TOOLTIP_TRACK_SIZE,
+                    bounds.y1() + TOOLTIP_PADDING,
+                    bounds.y2() - TOOLTIP_PADDING,
+                    TOOLTIP_TRACK_SIZE,
+                    thumbY,
+                    thumbHeight
+            );
+        }
+    }
+
+    private TooltipData getActiveTooltipData() {
+        if (this.activeTooltipGroupId.isBlank()) {
+            return null;
+        }
+        EzBalanceItemGroupDefinition group = this.config.itemGroups.get(this.activeTooltipGroupId);
+        if (group == null) {
+            return null;
+        }
+        List<TooltipLine> lines = buildTooltipLines(group);
+        TooltipBounds bounds = getTooltipBounds(lines.size());
+        int maxScroll = Math.max(0, lines.size() - getTooltipVisibleLineCount(bounds));
+        this.tooltipScrollLine = Math.clamp(this.tooltipScrollLine, 0, maxScroll);
+        return new TooltipData(lines, bounds);
+    }
+
+    private List<TooltipLine> buildTooltipLines(EzBalanceItemGroupDefinition group) {
+        List<TooltipLine> lines = new ArrayList<>();
+        String title = group.name == null || group.name.isBlank() ? group.id : group.name + " (" + group.id + ")";
+        addTooltipWrapped(lines, title, COLOR_ACCENT);
+
+        if (!group.attributeValues.isEmpty()) {
+            addTooltipBlank(lines);
+            addTooltipWrapped(lines, "Attributes", COLOR_ACCENT);
+            for (Map.Entry<String, Double> entry : group.attributeValues.entrySet()) {
+                addTooltipWrapped(lines, entry.getKey() + ": " + formatDouble(entry.getValue()), COLOR_TEXT);
+            }
+        }
+
+        if (!group.allowedEnchantments.isEmpty()) {
+            addTooltipBlank(lines);
+            addTooltipWrapped(lines, "Enabled enchants", COLOR_ACCENT);
+            for (String enchantmentId : group.allowedEnchantments) {
+                addTooltipWrapped(lines, enchantmentId, COLOR_TEXT);
+            }
+        }
+
+        if (group.forceDisabledEnchants) {
+            addTooltipBlank(lines);
+            addTooltipWrapped(lines, "Disabled enchants", COLOR_ACCENT);
+            addTooltipWrapped(lines, "All other default-compatible enchants", COLOR_TEXT);
+        }
+
+        if (lines.size() == 1) {
+            addTooltipBlank(lines);
+            addTooltipWrapped(lines, "No group changes.", COLOR_MUTED);
+        }
+        return lines;
+    }
+
+    private void addTooltipWrapped(List<TooltipLine> lines, String text, int color) {
+        String value = text == null ? "" : text;
+        int maxWidth = TOOLTIP_WIDTH - TOOLTIP_PADDING * 2 - TOOLTIP_TRACK_SIZE - TRACK_GAP;
+        if (value.isBlank()) {
+            lines.add(new TooltipLine("", color));
+            return;
+        }
+        String remaining = value;
+        while (!remaining.isEmpty()) {
+            String part = this.font.plainSubstrByWidth(remaining, maxWidth);
+            if (part.isEmpty()) {
+                break;
+            }
+            lines.add(new TooltipLine(part, color));
+            remaining = remaining.substring(part.length());
+        }
+    }
+
+    private void addTooltipBlank(List<TooltipLine> lines) {
+        lines.add(new TooltipLine("", COLOR_TEXT));
+    }
+
+    private TooltipBounds getTooltipBounds(int lineCount) {
+        int contentHeight = TOOLTIP_PADDING * 2 + Math.max(1, lineCount) * TOOLTIP_LINE_HEIGHT;
+        int height = Math.min(TOOLTIP_MAX_HEIGHT, Math.max(44, contentHeight));
+        int x = this.tooltipAnchorX + 16;
+        if (x + TOOLTIP_WIDTH > this.width - 16) {
+            x = this.tooltipAnchorX - TOOLTIP_WIDTH - 16;
+        }
+        x = Math.max(20, Math.min(x, this.width - TOOLTIP_WIDTH - 20));
+        int y = Math.max(20, Math.min(this.tooltipAnchorY - 8, this.height - height - 40));
+        return new TooltipBounds(x, y, x + TOOLTIP_WIDTH, y + height);
+    }
+
+    private int getTooltipVisibleLineCount(TooltipBounds bounds) {
+        return Math.max(1, (bounds.y2() - bounds.y1() - TOOLTIP_PADDING * 2) / TOOLTIP_LINE_HEIGHT);
+    }
+
+    private int getTooltipTrackHeight(TooltipBounds bounds) {
+        return Math.max(1, bounds.y2() - bounds.y1() - TOOLTIP_PADDING * 2);
+    }
+
+    private int getTooltipMaxScrollLine(TooltipData tooltip) {
+        return Math.max(0, tooltip.lines().size() - getTooltipVisibleLineCount(tooltip.bounds()));
+    }
+
+    private boolean isInsideActiveTooltip(double mouseX, double mouseY) {
+        TooltipData tooltip = getActiveTooltipData();
+        if (tooltip == null) {
+            return false;
+        }
+        TooltipBounds bounds = tooltip.bounds();
+        return mouseX >= bounds.x1() && mouseX <= bounds.x2() && mouseY >= bounds.y1() && mouseY <= bounds.y2();
+    }
+
+    private boolean isInsideTooltipScrollbar(double mouseX, double mouseY) {
+        TooltipData tooltip = getActiveTooltipData();
+        if (tooltip == null || getTooltipMaxScrollLine(tooltip) == 0) {
+            return false;
+        }
+        TooltipBounds bounds = tooltip.bounds();
+        int x = bounds.x2() - TOOLTIP_PADDING - TOOLTIP_TRACK_SIZE;
+        return mouseX >= x
+                && mouseX <= x + TOOLTIP_TRACK_SIZE
+                && mouseY >= bounds.y1() + TOOLTIP_PADDING
+                && mouseY <= bounds.y2() - TOOLTIP_PADDING;
+    }
+
+    private void updateTooltipScrollFromMouse(double mouseY) {
+        TooltipData tooltip = getActiveTooltipData();
+        if (tooltip == null) {
+            this.tooltipScrollLine = 0;
+            return;
+        }
+        int maxScroll = getTooltipMaxScrollLine(tooltip);
+        if (maxScroll == 0) {
+            this.tooltipScrollLine = 0;
+            return;
+        }
+        TooltipBounds bounds = tooltip.bounds();
+        double ratio = (mouseY - (bounds.y1() + TOOLTIP_PADDING)) / Math.max(1.0D, getTooltipTrackHeight(bounds));
+        this.tooltipScrollLine = Math.clamp((int) Math.round(ratio * maxScroll), 0, maxScroll);
+    }
+
+    private String formatDouble(double value) {
+        if (Math.rint(value) == value) {
+            return Integer.toString((int) value);
+        }
+        return String.format(java.util.Locale.ROOT, "%.2f", value);
     }
 
     private void drawTrimmed(GuiGraphics graphics, String text, int x, int y, int width, int color) {
@@ -274,5 +502,14 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
     }
 
     private record RowHitbox(String groupId, int rowIndex, boolean plusRow, boolean deleteButton, boolean editButton) {
+    }
+
+    private record TooltipLine(String text, int color) {
+    }
+
+    private record TooltipBounds(int x1, int y1, int x2, int y2) {
+    }
+
+    private record TooltipData(List<TooltipLine> lines, TooltipBounds bounds) {
     }
 }

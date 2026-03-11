@@ -23,7 +23,7 @@ public final class EzBalanceButton extends Button {
         int y = this.getY();
         int width = this.getWidth();
         int height = this.getHeight();
-        boolean hovered = this.isHoveredOrFocused();
+        boolean hovered = this.isHovered();
         boolean active = this.active;
 
         int fill = active ? (hovered ? 0xFF262626 : 0xFF141414) : 0xFF0A0A0A;

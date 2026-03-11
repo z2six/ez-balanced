@@ -6,15 +6,15 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraft.world.item.TooltipFlag;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
 import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
 import net.z2six.ezbalance.balance.EzBalanceItemRule;
 import net.z2six.ezbalance.balance.EzBalanceRarityDefinition;
 import net.z2six.ezbalance.balance.EzBalanceRuleMutations;
 import net.z2six.ezbalance.balance.EzBalanceRuntime;
-import net.z2six.ezbalance.network.SaveBalancePayload;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -57,9 +57,10 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private static final int LEFT_BUTTON_H = 24;
     private static final int LEFT_RESET_LABEL_X = 0;
     private static final int LEFT_RESET_ROW_Y = 72;
-    private static final int LEFT_RESET_BUTTON_Y = LEFT_RESET_ROW_Y + 36;
+    private static final int LEFT_NORMALIZE_ROW_Y = 108;
+    private static final int LEFT_RESET_BUTTON_Y = 144;
     private static final int LEFT_RESET_TOGGLE_Y = LEFT_RESET_BUTTON_Y + 6;
-    private static final int LEFT_ENCHANT_ROW_Y = 108;
+    private static final int LEFT_ENCHANT_ROW_Y = 144;
 
     private final EzBalanceConfig workingConfig;
     private final Set<String> selectedItems = new LinkedHashSet<>();
@@ -76,6 +77,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private Button applyRarityButton;
     private Button applyItemGroupButton;
     private Button changeAttributeButton;
+    private Button normalizeToggleButton;
     private Button resetButton;
     private Button enchantRulesButton;
     private String selectedTabId;
@@ -143,14 +145,16 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
         this.addRenderableWidget(customButton("<", this.width - 146, 26, 28, 20, button -> shiftTabs(-1)));
         this.addRenderableWidget(customButton(">", this.width - 114, 26, 28, 20, button -> shiftTabs(1)));
-        this.addRenderableWidget(customButton("Rarities", this.width - 412, this.height - 28, 76, 20, button -> this.minecraft.setScreen(new EzBalanceRarityScreen(this, this.workingConfig))));
-        this.addRenderableWidget(customButton("Item Groups", this.width - 330, this.height - 28, 78, 20, button -> this.minecraft.setScreen(new EzBalanceItemGroupScreen(this, this.workingConfig))));
+        this.addRenderableWidget(customButton("Rarities", this.width - 490, this.height - 28, 76, 20, button -> this.minecraft.setScreen(new EzBalanceRarityScreen(this, this.workingConfig))));
+        this.addRenderableWidget(customButton("Item Groups", this.width - 408, this.height - 28, 78, 20, button -> this.minecraft.setScreen(new EzBalanceItemGroupScreen(this, this.workingConfig))));
+        this.addRenderableWidget(customButton("Config", this.width - 324, this.height - 28, 72, 20, button -> this.minecraft.setScreen(new EzBalanceNormalizationConfigScreen(this, this.workingConfig, this.selectedTabId))));
         this.addRenderableWidget(customButton("Edit Tab", this.width - 246, this.height - 28, 72, 20, button -> this.minecraft.setScreen(new EzBalanceTabScreen(this, this.workingConfig, this.selectedTabId))));
-        this.addRenderableWidget(customButton("Save", this.width - 168, this.height - 28, 70, 20, button -> saveToServer()));
+        this.addRenderableWidget(customButton("Save", this.width - 168, this.height - 28, 70, 20, button -> persistWorkingConfig()));
         this.addRenderableWidget(customButton("Close", this.width - 90, this.height - 28, 70, 20, button -> this.onClose()));
         this.applyRarityButton = this.addRenderableWidget(customButton("Apply Rarity", 34, 216, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openBatchRarityPicker()));
         this.applyItemGroupButton = this.addRenderableWidget(customButton("Apply Item Group", 34, 252, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openBatchItemGroupPicker()));
         this.changeAttributeButton = this.addRenderableWidget(customButton("Change Attribute", 34, 288, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openAttributeEditor()));
+        this.normalizeToggleButton = this.addRenderableWidget(customButton(getNormalizationToggleLabel(), 34, 324, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> toggleNormalization()));
         this.resetButton = this.addRenderableWidget(customButton("Reset", 176, 322, 112, LEFT_BUTTON_H, button -> resetCurrentScope()));
         this.enchantRulesButton = this.addRenderableWidget(customButton("Enchant Rules", 34, 358, LEFT_BUTTON_W, LEFT_BUTTON_H, button -> openEnchantmentEditor()));
 
@@ -169,6 +173,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         positionLeftPanelWidget(this.applyRarityButton, 0, 0, LEFT_BUTTON_W);
         positionLeftPanelWidget(this.applyItemGroupButton, 0, LEFT_BUTTON_H + LEFT_ROW_GAP, LEFT_BUTTON_W);
         positionLeftPanelWidget(this.changeAttributeButton, 0, (LEFT_BUTTON_H + LEFT_ROW_GAP) * 2, LEFT_BUTTON_W);
+        positionLeftPanelWidget(this.normalizeToggleButton, 0, LEFT_NORMALIZE_ROW_Y, LEFT_BUTTON_W);
         positionLeftPanelWidget(this.resetButton, LEFT_CONTENT_WIDTH - 112, LEFT_RESET_BUTTON_Y, 112);
         positionLeftPanelWidget(this.enchantRulesButton, 0, LEFT_ENCHANT_ROW_Y + 36, LEFT_BUTTON_W);
     }
@@ -184,6 +189,18 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private void shiftTabs(int delta) {
         this.tabOffset = Math.clamp(this.tabOffset + delta, 0, Math.max(0, this.workingConfig.tabs.size() - getTabsPerPage()));
+    }
+
+    private void toggleNormalization() {
+        this.workingConfig.normalization.enabled = !this.workingConfig.normalization.enabled;
+        if (this.normalizeToggleButton != null) {
+            this.normalizeToggleButton.setMessage(Component.literal(getNormalizationToggleLabel()));
+        }
+        persistWorkingConfig();
+    }
+
+    private String getNormalizationToggleLabel() {
+        return "Normalize: " + (this.workingConfig.normalization != null && this.workingConfig.normalization.enabled ? "Enabled" : "Disabled");
     }
 
     private int getTabsPerPage() {
@@ -207,8 +224,8 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         stopInlineEdit(false);
         this.rarityPickerOpen = true;
         this.rarityPickerTargetItemId = "";
-        this.rarityPickerX = 34;
-        this.rarityPickerY = 244;
+        this.rarityPickerX = this.applyRarityButton.getX();
+        this.rarityPickerY = getAnchoredPopupY(this.applyRarityButton.getY(), this.applyRarityButton.getHeight(), getPickerPopupHeight(getRarityOptions().size()));
         this.rarityPickerWidth = 240;
         this.rarityPickerScroll = 0;
     }
@@ -225,8 +242,8 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         stopInlineEdit(false);
         this.itemGroupPickerOpen = true;
         this.itemGroupPickerTargetItemId = "";
-        this.itemGroupPickerX = 34;
-        this.itemGroupPickerY = 280;
+        this.itemGroupPickerX = this.applyItemGroupButton.getX();
+        this.itemGroupPickerY = getAnchoredPopupY(this.applyItemGroupButton.getY(), this.applyItemGroupButton.getHeight(), getPickerPopupHeight(getItemGroupOptions().size()));
         this.itemGroupPickerWidth = 240;
         this.itemGroupPickerScroll = 0;
     }
@@ -236,7 +253,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         this.rarityPickerOpen = true;
         this.rarityPickerTargetItemId = cell.itemId();
         this.rarityPickerX = cell.x1();
-        this.rarityPickerY = cell.y2() + 4;
+        this.rarityPickerY = getAnchoredPopupY(cell.y1(), cell.y2() - cell.y1(), getPickerPopupHeight(getRarityOptions().size()));
         this.rarityPickerWidth = Math.max(150, cell.x2() - cell.x1());
         this.rarityPickerScroll = 0;
     }
@@ -253,9 +270,22 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         this.itemGroupPickerOpen = true;
         this.itemGroupPickerTargetItemId = cell.itemId();
         this.itemGroupPickerX = cell.x1();
-        this.itemGroupPickerY = cell.y2() + 4;
+        this.itemGroupPickerY = getAnchoredPopupY(cell.y1(), cell.y2() - cell.y1(), getPickerPopupHeight(getItemGroupOptions().size()));
         this.itemGroupPickerWidth = Math.max(150, cell.x2() - cell.x1());
         this.itemGroupPickerScroll = 0;
+    }
+
+    private int getAnchoredPopupY(int anchorY, int anchorHeight, int popupHeight) {
+        int below = anchorY + anchorHeight + 4;
+        if (below + popupHeight <= this.height - 44) {
+            return below;
+        }
+        return Math.max(40, anchorY - popupHeight - 4);
+    }
+
+    private int getPickerPopupHeight(int optionCount) {
+        int visibleRows = Math.min(6, Math.max(1, optionCount));
+        return 10 + visibleRows * 20 + 38;
     }
 
     private void closeItemGroupPicker() {
@@ -308,67 +338,92 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         return new ArrayList<>(attributeIds);
     }
 
-    private void saveToServer() {
-        EzBalanceConfig normalized = EzBalanceConfig.fromJson(this.workingConfig.toJson());
+    public void persistWorkingConfig() {
+        persistWorkingConfig(this.selectedTabId);
+    }
+
+    public void persistWorkingConfig(String selectedTabId) {
+        EzBalanceConfig normalized = EzBalanceClientPersistence.persist(this.workingConfig);
         replaceWorkingConfig(normalized);
-        String json = normalized.toJson();
-        PacketDistributor.sendToServer(new SaveBalancePayload(json));
-        EzBalanceClientState.setConfig(EzBalanceConfig.fromJson(json));
-        this.savedConfigSnapshot = EzBalanceConfig.fromJson(json);
+        if (selectedTabId != null && !selectedTabId.isBlank()) {
+            this.selectedTabId = selectedTabId;
+        }
+        this.savedConfigSnapshot = EzBalanceConfig.fromJson(normalized.toJson());
         invalidateTableData();
         refreshItems();
     }
 
     private void replaceWorkingConfig(EzBalanceConfig source) {
-        this.workingConfig.schemaVersion = source.schemaVersion;
-        this.workingConfig.tabs.clear();
-        this.workingConfig.tabs.putAll(source.tabs);
-        this.workingConfig.rarities.clear();
-        this.workingConfig.rarities.putAll(source.rarities);
-        this.workingConfig.itemGroups.clear();
-        this.workingConfig.itemGroups.putAll(source.itemGroups);
-        this.workingConfig.items.clear();
-        this.workingConfig.items.putAll(source.items);
-        this.workingConfig.originalAttributes.clear();
-        this.workingConfig.originalAttributes.putAll(source.originalAttributes);
+        EzBalanceClientPersistence.copyInto(this.workingConfig, source);
+        if (this.normalizeToggleButton != null) {
+            this.normalizeToggleButton.setMessage(Component.literal(getNormalizationToggleLabel()));
+        }
     }
 
     private void applyRaritySelection(String rarityId) {
-        if (!this.rarityPickerTargetItemId.isBlank()) {
-            applyRarityToItem(this.rarityPickerTargetItemId, rarityId);
-        } else {
-            List<String> editableItems = getActionEditableItems();
-            EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, editableItems);
-            for (String itemId : editableItems) {
-                applyRarityToItem(itemId, rarityId);
-            }
-        }
         closeRarityPicker();
-        refreshItems();
+        LinkedHashSet<String> targetItems = !this.rarityPickerTargetItemId.isBlank()
+                ? new LinkedHashSet<>(Set.of(this.rarityPickerTargetItemId))
+                : new LinkedHashSet<>(getActionEditableItems());
+        if (targetItems.isEmpty()) {
+            return;
+        }
+        if (rarityId == null || rarityId.isBlank()) {
+            EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, targetItems);
+            for (String itemId : targetItems) {
+                EzBalanceRuleMutations.clearRarity(this.workingConfig, itemId);
+            }
+            persistWorkingConfig();
+            return;
+        }
+        this.minecraft.setScreen(new EzBalanceApplySelectionScreen(this, EzBalanceApplyMode.RARITY, rarityId, getRarityOptionLabel(rarityId), targetItems, getRarityAttributeOptions(rarityId), false));
     }
 
     private void applyItemGroupSelection(String itemGroupId) {
-        if (!this.itemGroupPickerTargetItemId.isBlank()) {
-            applyItemGroupToItem(this.itemGroupPickerTargetItemId, itemGroupId);
-        } else {
-            List<String> editableItems = getActionEditableItems();
-            EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, editableItems);
-            for (String itemId : editableItems) {
-                applyItemGroupToItem(itemId, itemGroupId);
-            }
-        }
         closeItemGroupPicker();
-        refreshItems();
+        LinkedHashSet<String> targetItems = !this.itemGroupPickerTargetItemId.isBlank()
+                ? new LinkedHashSet<>(Set.of(this.itemGroupPickerTargetItemId))
+                : new LinkedHashSet<>(getActionEditableItems());
+        if (targetItems.isEmpty()) {
+            return;
+        }
+        if (itemGroupId == null || itemGroupId.isBlank()) {
+            EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, targetItems);
+            for (String itemId : targetItems) {
+                EzBalanceRuleMutations.clearItemGroup(this.workingConfig, itemId);
+            }
+            persistWorkingConfig();
+            return;
+        }
+        boolean hasEnchantRules = itemGroupHasEnchantRules(itemGroupId);
+        this.minecraft.setScreen(new EzBalanceApplySelectionScreen(this, EzBalanceApplyMode.ITEM_GROUP, itemGroupId, getItemGroupOptionLabel(itemGroupId), targetItems, getItemGroupAttributeOptions(itemGroupId), hasEnchantRules));
     }
 
-    private void applyRarityToItem(String itemId, String rarityId) {
-        EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(itemId));
-        EzBalanceRuleMutations.applyScopedRarity(this.workingConfig, itemId, rarityId, getEditableTabAttributes());
+    void applyRarityWithScope(String rarityId, Set<String> targetItems, Set<String> selectedAttributes) {
+        EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, targetItems);
+        for (String itemId : targetItems) {
+            EzBalanceRuleMutations.applyScopedRarity(this.workingConfig, itemId, rarityId, selectedAttributes);
+        }
+        persistWorkingConfig();
+        this.minecraft.setScreen(this);
     }
 
-    private void applyItemGroupToItem(String itemId, String itemGroupId) {
-        EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(itemId));
-        EzBalanceRuleMutations.applyScopedItemGroup(this.workingConfig, itemId, itemGroupId, getEditableTabAttributes());
+    void applyItemGroupWithScope(String itemGroupId, Set<String> targetItems, Set<String> selectedAttributes, boolean overrideEnchants) {
+        EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, targetItems);
+        Map<String, List<String>> conflicts = new LinkedHashMap<>();
+        for (String itemId : targetItems) {
+            List<String> conflictReasons = EzBalanceRuntime.getItemGroupConflictReasons(this.workingConfig, itemId, itemGroupId, selectedAttributes);
+            if (!conflictReasons.isEmpty()) {
+                conflicts.put(itemId, conflictReasons);
+                continue;
+            }
+            EzBalanceRuleMutations.applyScopedItemGroup(this.workingConfig, itemId, itemGroupId, selectedAttributes, overrideEnchants);
+        }
+        persistWorkingConfig();
+        this.minecraft.setScreen(this);
+        if (!conflicts.isEmpty()) {
+            this.minecraft.setScreen(new EzBalanceItemGroupConflictScreen(this, getItemGroupOptionLabel(itemGroupId), conflicts));
+        }
     }
 
     private List<String> getActionEditableItems() {
@@ -431,6 +486,35 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     public List<String> getVisibleItemsSnapshot() {
         return new ArrayList<>(this.visibleItems);
+    }
+
+    private LinkedHashSet<String> getRarityAttributeOptions(String rarityId) {
+        LinkedHashSet<String> attributes = new LinkedHashSet<>();
+        EzBalanceRarityDefinition rarity = this.workingConfig.rarities.get(rarityId);
+        if (rarity != null && rarity.attributeModifiers != null) {
+            rarity.attributeModifiers.keySet().stream()
+                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .filter(attributeId -> !attributeId.isBlank())
+                    .forEach(attributes::add);
+        }
+        return attributes;
+    }
+
+    private LinkedHashSet<String> getItemGroupAttributeOptions(String itemGroupId) {
+        LinkedHashSet<String> attributes = new LinkedHashSet<>();
+        EzBalanceItemGroupDefinition itemGroup = this.workingConfig.itemGroups.get(itemGroupId);
+        if (itemGroup != null && itemGroup.attributeValues != null) {
+            itemGroup.attributeValues.keySet().stream()
+                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .filter(attributeId -> !attributeId.isBlank())
+                    .forEach(attributes::add);
+        }
+        return attributes;
+    }
+
+    private boolean itemGroupHasEnchantRules(String itemGroupId) {
+        EzBalanceItemGroupDefinition itemGroup = this.workingConfig.itemGroups.get(itemGroupId);
+        return itemGroup != null && (itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty());
     }
 
     private int getVisibleRows() {
@@ -570,7 +654,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         for (String itemId : targetItems) {
             EzBalanceRuleMutations.restoreOriginalState(this.workingConfig, itemId);
         }
-        refreshItems();
+        persistWorkingConfig();
     }
 
     private List<String> getAllItemsInSelectedTab() {
@@ -579,19 +663,11 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private List<String> getCurrentColumns() {
         var tab = this.workingConfig.tabs.get(this.selectedTabId);
-        List<String> columns = tab == null ? List.of() : tab.displayAttributes.stream()
+        return tab == null ? List.of() : tab.displayAttributes.stream()
                 .map(EzBalanceRuntime::normalizeAttributeId)
                 .filter(attributeId -> !attributeId.isBlank())
                 .distinct()
                 .toList();
-        if (!columns.isEmpty()) {
-            return columns;
-        }
-        return List.of(
-                EzBalanceRuntime.ATTACK_DAMAGE_ATTRIBUTE_ID,
-                "minecraft:generic.attack_speed",
-                EzBalanceRuntime.ARMOR_ATTRIBUTE_ID
-        );
     }
 
     private List<String> getEditableTabAttributes() {
@@ -871,7 +947,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private void toggleLocked(String itemId) {
         EzBalanceRuleMutations.setLocked(this.workingConfig, itemId, !isLocked(itemId));
-        invalidateTableData();
+        persistWorkingConfig();
     }
 
     private boolean isLocked(String itemId) {
@@ -929,13 +1005,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         EzBalanceRuntime.captureOriginalAttributes(this.workingConfig, List.of(this.inlineEditItemId));
         if (text.isBlank()) {
             EzBalanceRuleMutations.setAttributeOverride(this.workingConfig, this.inlineEditItemId, this.inlineEditAttributeId, null);
-            invalidateTableData();
-            if (this.sortMode != SortMode.NONE) {
-                if (this.sortMode == SortMode.ATTRIBUTE) {
-                    ensureAllVisibleDataLoaded();
-                }
-                sortVisibleItems();
-            }
+            persistWorkingConfig();
             return true;
         }
 
@@ -945,13 +1015,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         }
 
         EzBalanceRuleMutations.setAttributeOverride(this.workingConfig, this.inlineEditItemId, this.inlineEditAttributeId, value);
-        invalidateTableData();
-        if (this.sortMode != SortMode.NONE) {
-            if (this.sortMode == SortMode.ATTRIBUTE) {
-                ensureAllVisibleDataLoaded();
-            }
-            sortVisibleItems();
-        }
+        persistWorkingConfig();
         return true;
     }
 
@@ -1226,7 +1290,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     }
 
     private int getLeftPanelContentHeight() {
-        return LEFT_ENCHANT_ROW_Y + LEFT_BUTTON_H + 28;
+        return LEFT_ENCHANT_ROW_Y + LEFT_BUTTON_H + 64;
     }
 
     private int getLeftPanelMaxScrollX() {
@@ -1485,11 +1549,8 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private void renderVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getTableViewportRight() + TABLE_SCROLLBAR_GAP;
-        int x2 = x1 + TABLE_SCROLLBAR_SIZE;
         int y1 = getTableTop();
         int y2 = getTableViewportBottom();
-        graphics.fill(x1, y1, x2, y2, COLOR_BORDER);
-
         int maxScroll = Math.max(0, this.visibleItems.size() - getVisibleRows());
         int trackHeight = Math.max(1, y2 - y1);
         int thumbHeight = this.visibleItems.isEmpty()
@@ -1497,16 +1558,13 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 : Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), this.visibleItems.size()));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = y1 + (maxScroll == 0 ? 0 : maxTravel * this.itemScroll / maxScroll);
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics, int contentWidth) {
         int x1 = getTableX();
         int x2 = getTableViewportRight();
         int y1 = getBottomScrollbarY();
-        int y2 = y1 + TABLE_SCROLLBAR_SIZE;
-        graphics.fill(x1, y1, x2, y2, COLOR_BORDER);
-
         int maxScroll = Math.max(0, contentWidth - getTableViewWidth());
         int trackWidth = Math.max(1, x2 - x1);
         int thumbWidth = contentWidth <= 0
@@ -1514,37 +1572,31 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 : Math.max(24, trackWidth * getTableViewWidth() / Math.max(getTableViewWidth(), contentWidth));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = x1 + (maxScroll == 0 ? 0 : maxTravel * this.tableScrollX / maxScroll);
-        graphics.fill(thumbX, y1, thumbX + thumbWidth, y2, COLOR_ACCENT);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth);
     }
 
     private void renderLeftVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getLeftVerticalScrollbarX();
-        int x2 = x1 + TABLE_SCROLLBAR_SIZE;
         int y1 = getLeftViewportY();
         int y2 = getLeftViewportBottom();
-        graphics.fill(x1, y1, x2, y2, COLOR_BORDER);
-
         int maxScroll = getLeftPanelMaxScrollY();
         int trackHeight = Math.max(1, y2 - y1);
         int thumbHeight = Math.max(18, trackHeight * getLeftViewportHeight() / Math.max(getLeftViewportHeight(), getLeftPanelContentHeight()));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = y1 + (maxScroll == 0 ? 0 : maxTravel * this.leftPanelScrollY / maxScroll);
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight);
     }
 
     private void renderLeftHorizontalScrollbar(GuiGraphics graphics) {
         int x1 = getLeftViewportX();
         int x2 = getLeftViewportRight();
         int y1 = getBottomScrollbarY();
-        int y2 = y1 + TABLE_SCROLLBAR_SIZE;
-        graphics.fill(x1, y1, x2, y2, COLOR_BORDER);
-
         int maxScroll = getLeftPanelMaxScrollX();
         int trackWidth = Math.max(1, x2 - x1);
         int thumbWidth = Math.max(24, trackWidth * getLeftViewportWidth() / Math.max(getLeftViewportWidth(), getLeftPanelContentWidth()));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = x1 + (maxScroll == 0 ? 0 : maxTravel * this.leftPanelScrollX / maxScroll);
-        graphics.fill(thumbX, y1, thumbX + thumbWidth, y2, COLOR_ACCENT);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth);
     }
 
     private void renderResetScopeTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -1696,9 +1748,6 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         int rowHeight = 20;
         drawPanel(graphics, bounds.x1(), bounds.y1(), bounds.x2(), bounds.y2(), false);
         drawLabel(graphics, "Select rarity", bounds.x1() + 10, bounds.y1() + 10, true);
-        if (this.workingConfig.rarities.isEmpty()) {
-            drawLabel(graphics, "No rarities configured yet.", bounds.x1() + 10, bounds.y1() + 24, false);
-        }
 
         for (int row = 0; row < bounds.visibleRows(); row++) {
             int index = this.rarityPickerScroll + row;
@@ -1727,9 +1776,6 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         int rowHeight = 20;
         drawPanel(graphics, bounds.x1(), bounds.y1(), bounds.x2(), bounds.y2(), false);
         drawLabel(graphics, "Select item group", bounds.x1() + 10, bounds.y1() + 10, true);
-        if (this.workingConfig.itemGroups.isEmpty()) {
-            drawLabel(graphics, "No item groups configured yet.", bounds.x1() + 10, bounds.y1() + 24, false);
-        }
 
         for (int row = 0; row < bounds.visibleRows(); row++) {
             int index = this.itemGroupPickerScroll + row;
@@ -1796,15 +1842,13 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
 
     private String getPickerSelectedItemGroup() {
         if (!this.itemGroupPickerTargetItemId.isBlank()) {
-            EzBalanceItemRule rule = this.workingConfig.items.get(this.itemGroupPickerTargetItemId);
-            return rule == null ? "" : rule.itemGroupId;
+            return "";
         }
         List<String> targets = new ArrayList<>(getActionTargetItems());
         if (targets.size() != 1) {
             return "";
         }
-        EzBalanceItemRule rule = this.workingConfig.items.get(targets.getFirst());
-        return rule == null ? "" : rule.itemGroupId;
+        return "";
     }
 
     private String getRarityOptionLabel(String rarityId) {
@@ -1833,11 +1877,16 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     }
 
     private String getConfiguredItemGroupLabel(String itemId) {
-        EzBalanceItemRule rule = this.workingConfig.items.get(itemId);
-        if (rule == null || rule.itemGroupId.isBlank()) {
+        List<String> groupIds = new ArrayList<>(EzBalanceRuntime.getAssignedItemGroupIds(this.workingConfig, itemId));
+        if (groupIds.isEmpty()) {
             return "-";
         }
-        return getItemGroupOptionLabel(rule.itemGroupId);
+        List<String> initials = new ArrayList<>();
+        for (String groupId : groupIds) {
+            String label = getItemGroupOptionLabel(groupId);
+            initials.add(label.isBlank() ? "?" : label.substring(0, 1).toUpperCase(Locale.ROOT));
+        }
+        return String.join(", ", initials);
     }
 
     private String getRarityLabel(String itemId) {
@@ -1848,6 +1897,19 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     private String getItemGroupLabel(String itemId) {
         ItemViewData data = this.itemDataCache.get(itemId);
         return data == null ? getConfiguredItemGroupLabel(itemId) : data.itemGroupLabel();
+    }
+
+    private List<Component> getItemGroupTooltip(String itemId) {
+        List<String> groupIds = new ArrayList<>(EzBalanceRuntime.getAssignedItemGroupIds(this.workingConfig, itemId));
+        if (groupIds.isEmpty()) {
+            return List.of(Component.literal("No item groups"));
+        }
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal("Item Groups"));
+        for (String groupId : groupIds) {
+            lines.add(Component.literal(getItemGroupOptionLabel(groupId)));
+        }
+        return lines;
     }
 
     private String getItemGroupOptionLabel(String itemGroupId) {
@@ -2054,13 +2116,37 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         }
 
         if (hoveredCell.kind() == CellKind.ITEM) {
-            graphics.renderTooltip(this.font, EzBalanceClientCatalog.getItem(hoveredCell.itemId()).getDefaultInstance(), mouseX, mouseY);
+            ItemStack stack = EzBalanceClientCatalog.getItem(hoveredCell.itemId()).getDefaultInstance();
+            List<Component> tooltip = new ArrayList<>(stack.getTooltipLines(
+                    Item.TooltipContext.EMPTY,
+                    this.minecraft.player,
+                    this.minecraft.options.advancedItemTooltips ? TooltipFlag.Default.ADVANCED : TooltipFlag.Default.NORMAL
+            ));
+            List<String> tags = EzBalanceClientCatalog.getItemTagIds(hoveredCell.itemId());
+            if (!tags.isEmpty()) {
+                tooltip.add(Component.empty());
+                tooltip.add(Component.literal("Tags"));
+                for (String tag : tags) {
+                    tooltip.add(Component.literal(tag));
+                }
+            }
+            graphics.renderTooltip(this.font, tooltip, java.util.Optional.empty(), mouseX, mouseY);
             return;
         }
         if (hoveredCell.kind() == CellKind.ENCHANT_RULES && hasCustomEnchantmentRules(hoveredCell.itemId())) {
             graphics.renderTooltip(
                     this.font,
                     List.of(Component.literal("Custom enchant rules")),
+                    java.util.Optional.empty(),
+                    mouseX,
+                    mouseY
+            );
+            return;
+        }
+        if (hoveredCell.kind() == CellKind.ITEM_GROUP) {
+            graphics.renderTooltip(
+                    this.font,
+                    getItemGroupTooltip(hoveredCell.itemId()),
                     java.util.Optional.empty(),
                     mouseX,
                     mouseY

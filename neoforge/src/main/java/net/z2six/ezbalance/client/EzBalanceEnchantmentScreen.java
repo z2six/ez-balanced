@@ -89,6 +89,7 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
             EzBalanceRuleMutations.clearEnchantmentRules(this.config, itemId);
         }
         refreshEnchantments();
+        persistChanges();
     }
 
     private boolean isDefaultCompatible(String itemId, String enchantmentId) {
@@ -141,6 +142,7 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
             boolean baseAllowed = isCompatibleBeforeItemOverrides(itemId, enchantmentId);
             EzBalanceRuleMutations.setEnchantmentEnabled(this.config, itemId, enchantmentId, nextEnabled, baseAllowed);
         }
+        persistChanges();
     }
 
     private boolean allEditableItemsEnabled(String enchantmentId) {
@@ -290,12 +292,11 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
     private void renderScrollbar(GuiGraphics graphics) {
         int trackX = this.width - 24;
         int trackHeight = this.height - LIST_TOP - 44;
-        graphics.fill(trackX, LIST_TOP, trackX + TRACK_WIDTH, LIST_TOP + trackHeight, COLOR_BORDER);
         int rowCount = this.visibleEnchantments.isEmpty() ? getVisibleRows() : this.visibleEnchantments.size();
         int thumbHeight = Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), rowCount));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(trackX, thumbY, trackX + TRACK_WIDTH, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, LIST_TOP, LIST_TOP + trackHeight, TRACK_WIDTH, thumbY, thumbHeight);
     }
 
     private String trimToWidth(String text, int width) {
@@ -316,5 +317,13 @@ public class EzBalanceEnchantmentScreen extends AbstractEzBalanceScreen {
             screen.applyEditedConfig(this.config, "");
         }
         this.minecraft.setScreen(this.parent);
+    }
+
+    private void persistChanges() {
+        if (this.parent instanceof EzBalanceScreen screen) {
+            screen.persistWorkingConfig();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
     }
 }

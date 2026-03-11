@@ -24,6 +24,8 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
     private static final int TEXT_BOX_WIDTH = 560;
     private static final int BUTTON_WIDTH = 76;
     private static final int HANDLE_WIDTH = 18;
+    private static final int INVERT_CHECKBOX_SIZE = 12;
+    private static final int INVERT_BLOCK_WIDTH = 90;
     private static final int SUGGESTION_VISIBLE_ROWS = 8;
     private static final int SUGGESTION_ROW_HEIGHT = 18;
 
@@ -31,6 +33,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
     private final EzBalanceConfig config;
     private final String originalTabId;
     private final List<String> allAttributeIds;
+    private final List<String> allItemTagIds;
     private final List<RowEntry> filterRows = new ArrayList<>();
     private final List<RowEntry> columnRows = new ArrayList<>();
     private final List<String> visibleSuggestions = new ArrayList<>();
@@ -41,6 +44,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
     private int scrollX;
     private boolean draggingVerticalScrollbar;
     private boolean draggingHorizontalScrollbar;
+    private boolean matchAnyTagFilters;
     private RowSection plusMenuSection = RowSection.NONE;
     private int plusMenuX;
     private int plusMenuY;
@@ -60,6 +64,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         this.config = config;
         this.originalTabId = tabId == null ? "" : tabId;
         this.allAttributeIds = EzBalanceClientCatalog.getAllAttributeIds();
+        this.allItemTagIds = EzBalanceClientCatalog.getAllItemTagIds();
     }
 
     @Override
@@ -78,6 +83,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         this.suppressedSuggestionValue = "";
         this.plusMenuSection = RowSection.NONE;
         this.dragState = null;
+        this.matchAnyTagFilters = false;
 
         this.idBox = new EditBox(this.font, 24, 56, 200, 20, Component.literal("Tab id"));
         this.idBox.setMaxLength(128);
@@ -106,30 +112,45 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
         this.idBox.setValue(tab.id);
         this.titleBox.setValue(tab.title);
+        this.matchAnyTagFilters = tab.matchAnyTags;
 
         for (String attributeId : tab.requiredAttributes) {
-            addRow(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, attributeId);
+            addRow(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, attributeId, false);
+        }
+        for (String attributeId : tab.excludedAttributes) {
+            addRow(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, attributeId, true);
         }
         for (String nameFilter : tab.nameFilters) {
-            addRow(RowSection.FILTERS, RowType.FILTER_ITEM_NAME, nameFilter);
+            addRow(RowSection.FILTERS, RowType.FILTER_ITEM_NAME, nameFilter, false);
+        }
+        for (String nameFilter : tab.excludedNameFilters) {
+            addRow(RowSection.FILTERS, RowType.FILTER_ITEM_NAME, nameFilter, true);
         }
         for (String tagId : tab.includeTags) {
-            addRow(RowSection.FILTERS, RowType.FILTER_TAG, tagId);
+            addRow(RowSection.FILTERS, RowType.FILTER_TAG, tagId, false);
+        }
+        for (String tagId : tab.excludeTags) {
+            addRow(RowSection.FILTERS, RowType.FILTER_TAG, tagId, true);
         }
         for (String display : tab.displayAttributes) {
             String normalized = EzBalanceRuntime.normalizeAttributeId(display);
             if (EzBalanceRuntime.DPS_COLUMN_ID.equals(normalized)) {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_DPS, "DPS");
+                addRow(RowSection.COLUMNS, RowType.COLUMN_DPS, "DPS", false);
             } else if (EzBalanceRuntime.ENCHANT_RULES_COLUMN_ID.equals(normalized)) {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_ENCHANT_RULES, "Enchantment rules");
+                addRow(RowSection.COLUMNS, RowType.COLUMN_ENCHANT_RULES, "Enchantment rules", false);
             } else {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, normalized);
+                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, normalized, false);
             }
         }
     }
 
     private void addRow(RowSection section, RowType type, String value) {
+        addRow(section, type, value, false);
+    }
+
+    private void addRow(RowSection section, RowType type, String value, boolean inverted) {
         RowEntry entry = new RowEntry(section, type);
+        entry.inverted = inverted;
         if (type.editable()) {
             EditBox box = new EditBox(this.font, 0, 0, TEXT_BOX_WIDTH, 20, Component.literal(type.placeholder()));
             box.setMaxLength(256);
@@ -186,6 +207,12 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         tab.id = id;
         tab.title = this.titleBox.getValue().isBlank() ? id : this.titleBox.getValue().trim();
         tab.iconItemId = existing == null ? "minecraft:book" : existing.iconItemId;
+        Set<String> seenRequiredAttributes = new LinkedHashSet<>();
+        Set<String> seenExcludedAttributes = new LinkedHashSet<>();
+        Set<String> seenNameFilters = new LinkedHashSet<>();
+        Set<String> seenExcludedNameFilters = new LinkedHashSet<>();
+        Set<String> seenIncludeTags = new LinkedHashSet<>();
+        Set<String> seenExcludeTags = new LinkedHashSet<>();
 
         for (RowEntry row : this.filterRows) {
             String value = row.value();
@@ -193,22 +220,67 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
                 continue;
             }
             switch (row.type) {
-                case FILTER_ATTRIBUTE -> tab.requiredAttributes.add(EzBalanceRuntime.normalizeAttributeId(value));
-                case FILTER_ITEM_NAME -> tab.nameFilters.add(value.trim());
-                case FILTER_TAG -> tab.includeTags.add(value.trim());
+                case FILTER_ATTRIBUTE -> {
+                    String normalized = EzBalanceRuntime.normalizeAttributeId(value);
+                    if (normalized.isBlank()) {
+                        continue;
+                    }
+                    if (row.inverted) {
+                        if (seenExcludedAttributes.add(normalized)) {
+                            tab.excludedAttributes.add(normalized);
+                        }
+                    } else {
+                        if (seenRequiredAttributes.add(normalized)) {
+                            tab.requiredAttributes.add(normalized);
+                        }
+                    }
+                }
+                case FILTER_ITEM_NAME -> {
+                    String trimmed = value.trim();
+                    if (row.inverted) {
+                        if (!trimmed.isBlank() && seenExcludedNameFilters.add(trimmed.toLowerCase(Locale.ROOT))) {
+                            tab.excludedNameFilters.add(trimmed);
+                        }
+                    } else {
+                        if (!trimmed.isBlank() && seenNameFilters.add(trimmed.toLowerCase(Locale.ROOT))) {
+                            tab.nameFilters.add(trimmed);
+                        }
+                    }
+                }
+                case FILTER_TAG -> {
+                    String trimmed = value.trim();
+                    if (row.inverted) {
+                        if (!trimmed.isBlank() && seenExcludeTags.add(trimmed)) {
+                            tab.excludeTags.add(trimmed);
+                        }
+                    } else {
+                        if (!trimmed.isBlank() && seenIncludeTags.add(trimmed)) {
+                            tab.includeTags.add(trimmed);
+                        }
+                    }
+                }
                 default -> {
                 }
             }
         }
+        tab.matchAnyTags = this.matchAnyTagFilters;
 
+        Set<String> seenDisplayColumns = new LinkedHashSet<>();
         for (RowEntry row : this.columnRows) {
             String value = row.value();
             if (row.type == RowType.COLUMN_DPS) {
-                tab.displayAttributes.add(EzBalanceRuntime.DPS_COLUMN_ID);
+                if (seenDisplayColumns.add(EzBalanceRuntime.DPS_COLUMN_ID)) {
+                    tab.displayAttributes.add(EzBalanceRuntime.DPS_COLUMN_ID);
+                }
             } else if (row.type == RowType.COLUMN_ENCHANT_RULES) {
-                tab.displayAttributes.add(EzBalanceRuntime.ENCHANT_RULES_COLUMN_ID);
+                if (seenDisplayColumns.add(EzBalanceRuntime.ENCHANT_RULES_COLUMN_ID)) {
+                    tab.displayAttributes.add(EzBalanceRuntime.ENCHANT_RULES_COLUMN_ID);
+                }
             } else if (!value.isBlank()) {
-                tab.displayAttributes.add(EzBalanceRuntime.normalizeAttributeId(value));
+                String normalized = EzBalanceRuntime.normalizeAttributeId(value);
+                if (!normalized.isBlank() && seenDisplayColumns.add(normalized)) {
+                    tab.displayAttributes.add(normalized);
+                }
             }
         }
 
@@ -237,6 +309,9 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
     private void closeToParent(String selectedTabId) {
         if (this.parent instanceof EzBalanceScreen screen) {
             screen.applyEditedConfig(this.config, selectedTabId);
+            screen.persistWorkingConfig(selectedTabId);
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
         }
         this.minecraft.setScreen(this.parent);
     }
@@ -258,7 +333,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         for (String attributeId : discovered) {
             String normalized = EzBalanceRuntime.normalizeAttributeId(attributeId);
             if (!normalized.isBlank() && !existing.contains(normalized)) {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, normalized);
+                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, normalized, false);
                 existing.add(normalized);
             }
         }
@@ -293,7 +368,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
                 int rowY = LIST_TOP + visibleIndex * ROW_HEIGHT + 8;
                 row.textBox.setX(baseX);
                 row.textBox.setY(rowY);
-                row.textBox.setWidth(TEXT_BOX_WIDTH);
+                row.textBox.setWidth(getTextBoxWidth(row));
                 row.textBox.setHeight(20);
             } else {
                 row.textBox.setX(-2000);
@@ -340,8 +415,16 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
         RenderedRowHit hit = getRenderedRowHit(mouseX, mouseY);
         if (button == 0 && hit != null) {
+            if (hit.kind == HitKind.TAG_MATCH_MODE) {
+                this.matchAnyTagFilters = !this.matchAnyTagFilters;
+                return true;
+            }
             if (hit.kind == HitKind.DELETE && hit.renderedRow.entry() != null) {
                 removeRow(hit.renderedRow.section(), hit.renderedRow.rowIndexInSection());
+                return true;
+            }
+            if (hit.kind == HitKind.INVERT && hit.renderedRow.entry() != null) {
+                hit.renderedRow.entry().inverted = !hit.renderedRow.entry().inverted;
                 return true;
             }
             if (hit.kind == HitKind.PLUS) {
@@ -486,6 +569,15 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
             if (rendered.kind() == RenderedKind.HEADER) {
                 drawLabel(graphics, rendered.label(), getListX() + 8, rowY + 12, rendered.section() == RowSection.FILTERS);
+                if (rendered.section() == RowSection.FILTERS) {
+                    int toggleX = getListRight() - 168;
+                    boolean toggleHovered = hovered != null && hovered.kind == HitKind.TAG_MATCH_MODE && hovered.renderedRow == rendered;
+                    if (toggleHovered) {
+                        graphics.fill(toggleX - 6, rowY + 7, toggleX + 132, rowY + 29, 0x18111111 | COLOR_ACCENT);
+                    }
+                    renderSimpleCheckbox(graphics, toggleX, rowY + 12, this.matchAnyTagFilters);
+                    drawLabel(graphics, "Match any tags", toggleX + 18, rowY + 14, false);
+                }
                 continue;
             }
 
@@ -502,6 +594,16 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
             if (rendered.entry() != null && !rendered.entry().type.editable()) {
                 drawLabel(graphics, rendered.entry().label, getListX() + 40 - this.scrollX, rowY + 14, false);
+            }
+
+            if (rendered.entry() != null && rendered.entry().section == RowSection.FILTERS) {
+                int invertX = getInvertBlockX();
+                boolean invertHovered = hovered != null && hovered.kind == HitKind.INVERT && hovered.renderedRow == rendered;
+                if (invertHovered) {
+                    graphics.fill(invertX - 4, rowY + 7, invertX + INVERT_BLOCK_WIDTH, rowY + 29, 0x18111111 | COLOR_ACCENT);
+                }
+                renderSimpleCheckbox(graphics, invertX, rowY + 12, rendered.entry().inverted);
+                drawLabel(graphics, "Invert", invertX + 18, rowY + 14, false);
             }
 
             int deleteX = getDeleteButtonX();
@@ -559,24 +661,20 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
     private void renderVerticalScrollbar(GuiGraphics graphics) {
         int x1 = getListRight() + TRACK_GAP;
-        int x2 = x1 + TRACK_SIZE;
-        graphics.fill(x1, LIST_TOP, x2, LIST_TOP + getListHeight(), COLOR_BORDER);
         int totalRows = Math.max(1, getRenderedRows().size());
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(x1, thumbY, x2, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics) {
         int y1 = LIST_TOP + getListHeight() + TRACK_GAP;
-        int y2 = y1 + TRACK_SIZE;
-        graphics.fill(getListX(), y1, getListRight(), y2, COLOR_BORDER);
         int trackWidth = getListWidth();
         int thumbWidth = Math.max(24, trackWidth * getListWidth() / Math.max(getListWidth(), CONTENT_WIDTH));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = getListX() + (getMaxScrollX() == 0 ? 0 : maxTravel * this.scrollX / getMaxScrollX());
-        graphics.fill(thumbX, y1, thumbX + thumbWidth, y2, COLOR_ACCENT);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth);
     }
 
     private List<String> getPlusMenuOptions() {
@@ -600,19 +698,19 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         String choice = options.get(index);
         if (this.plusMenuSection == RowSection.FILTERS) {
             if ("Attribute".equals(choice)) {
-                addRow(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, "");
+                addRow(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, "", false);
             } else if ("Item name".equals(choice)) {
-                addRow(RowSection.FILTERS, RowType.FILTER_ITEM_NAME, "");
+                addRow(RowSection.FILTERS, RowType.FILTER_ITEM_NAME, "", false);
             } else {
-                addRow(RowSection.FILTERS, RowType.FILTER_TAG, "");
+                addRow(RowSection.FILTERS, RowType.FILTER_TAG, "", false);
             }
         } else {
             if ("Attribute".equals(choice)) {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, "");
+                addRow(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, "", false);
             } else if ("Projected DPS".equals(choice)) {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_DPS, "DPS");
+                addRow(RowSection.COLUMNS, RowType.COLUMN_DPS, "DPS", false);
             } else {
-                addRow(RowSection.COLUMNS, RowType.COLUMN_ENCHANT_RULES, "Enchantment rules");
+                addRow(RowSection.COLUMNS, RowType.COLUMN_ENCHANT_RULES, "Enchantment rules", false);
             }
         }
         this.plusMenuSection = RowSection.NONE;
@@ -668,6 +766,12 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         RenderedRow base = rows.get(actualIndex);
         RenderedRow rendered = new RenderedRow(base.section(), base.kind(), base.rowIndexInSection(), base.entry(), base.label(), LIST_TOP + visibleIndex * ROW_HEIGHT);
         if (rendered.kind() == RenderedKind.HEADER) {
+            if (rendered.section() == RowSection.FILTERS) {
+                int toggleX = getListRight() - 168;
+                if (mouseX >= toggleX - 6 && mouseX <= toggleX + 132 && mouseY >= rendered.y() + 8 && mouseY <= rendered.y() + 28) {
+                    return new RenderedRowHit(rendered, HitKind.TAG_MATCH_MODE);
+                }
+            }
             return new RenderedRowHit(rendered, HitKind.ROW);
         }
         int handleX = getListX() + 8 - this.scrollX;
@@ -676,6 +780,15 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         }
         if (rendered.kind() == RenderedKind.PLUS) {
             return new RenderedRowHit(rendered, HitKind.PLUS);
+        }
+        int invertX = getInvertBlockX();
+        if (base.entry() != null
+                && base.entry().section == RowSection.FILTERS
+                && mouseX >= invertX - 4
+                && mouseX <= invertX + INVERT_BLOCK_WIDTH
+                && mouseY >= rendered.y() + 8
+                && mouseY <= rendered.y() + 28) {
+            return new RenderedRowHit(rendered, HitKind.INVERT);
         }
         int deleteX = getDeleteButtonX();
         if (mouseX >= deleteX && mouseX <= deleteX + BUTTON_WIDTH && mouseY >= rendered.y() + 8 && mouseY <= rendered.y() + 28) {
@@ -689,7 +802,9 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         int foundIndex = -1;
         for (int index = 0; index < this.filterRows.size(); index++) {
             RowEntry row = this.filterRows.get(index);
-            if (row.type == RowType.FILTER_ATTRIBUTE && row.textBox != null && row.textBox.isFocused()) {
+            if ((row.type == RowType.FILTER_ATTRIBUTE || row.type == RowType.FILTER_TAG)
+                    && row.textBox != null
+                    && row.textBox.isFocused()) {
                 foundSection = RowSection.FILTERS;
                 foundIndex = index;
                 break;
@@ -734,7 +849,8 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
     private void refreshSuggestions() {
         this.visibleSuggestions.clear();
         RowEntry row = getSuggestionRow();
-        if (row == null || row.textBox == null || !row.textBox.visible) {
+        List<String> sourceValues = getSuggestionSourceValues(row);
+        if (row == null || row.textBox == null || !row.textBox.visible || sourceValues.isEmpty()) {
             this.suggestionMatchCount = 0;
             return;
         }
@@ -743,12 +859,12 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         int start = this.suggestionScroll;
         int endExclusive = start + SUGGESTION_VISIBLE_ROWS;
         int matchIndex = 0;
-        for (String attributeId : this.allAttributeIds) {
-            if (!query.isBlank() && !attributeId.toLowerCase(Locale.ROOT).contains(query)) {
+        for (String value : sourceValues) {
+            if (!query.isBlank() && !value.toLowerCase(Locale.ROOT).contains(query)) {
                 continue;
             }
             if (matchIndex >= start && matchIndex < endExclusive) {
-                this.visibleSuggestions.add(attributeId);
+                this.visibleSuggestions.add(value);
             }
             matchIndex++;
         }
@@ -758,6 +874,59 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
             this.suggestionScroll = maxScroll;
             refreshSuggestions();
         }
+    }
+
+    private List<String> getSuggestionSourceValues(RowEntry row) {
+        if (row == null) {
+            return List.of();
+        }
+        return switch (row.type) {
+            case FILTER_ATTRIBUTE -> filterUnusedValues(this.allAttributeIds, getUsedRowValues(RowSection.FILTERS, RowType.FILTER_ATTRIBUTE, row));
+            case COLUMN_ATTRIBUTE -> filterUnusedValues(this.allAttributeIds, getUsedRowValues(RowSection.COLUMNS, RowType.COLUMN_ATTRIBUTE, row));
+            case FILTER_TAG -> filterUnusedValues(this.allItemTagIds, getUsedRowValues(RowSection.FILTERS, RowType.FILTER_TAG, row));
+            default -> List.of();
+        };
+    }
+
+    private List<String> filterUnusedValues(List<String> sourceValues, Set<String> usedValues) {
+        if (usedValues.isEmpty()) {
+            return sourceValues;
+        }
+        List<String> filtered = new ArrayList<>(sourceValues.size());
+        for (String sourceValue : sourceValues) {
+            String comparable = normalizeSuggestionValue(sourceValue);
+            if (!usedValues.contains(comparable)) {
+                filtered.add(sourceValue);
+            }
+        }
+        return filtered;
+    }
+
+    private Set<String> getUsedRowValues(RowSection section, RowType type, RowEntry excludedRow) {
+        Set<String> used = new LinkedHashSet<>();
+        for (RowEntry row : rowsFor(section)) {
+            if (row == excludedRow || row.type != type) {
+                continue;
+            }
+            String value = normalizeSuggestionValue(row.value());
+            if (!value.isBlank()) {
+                used.add(value);
+            }
+        }
+        return used;
+    }
+
+    private String normalizeSuggestionValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return "";
+        }
+        return trimmed.contains(":") || trimmed.startsWith("ezbalance:")
+                ? EzBalanceRuntime.normalizeAttributeId(trimmed)
+                : trimmed.toLowerCase(Locale.ROOT);
     }
 
     private RowEntry getSuggestionRow() {
@@ -818,6 +987,28 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
 
     private int getDeleteButtonX() {
         return getListX() + CONTENT_WIDTH - BUTTON_WIDTH - 12 - this.scrollX;
+    }
+
+    private int getInvertBlockX() {
+        return getDeleteButtonX() - INVERT_BLOCK_WIDTH - 16;
+    }
+
+    private int getTextBoxWidth(RowEntry row) {
+        if (row != null && row.section == RowSection.FILTERS) {
+            return Math.max(180, getInvertBlockX() - (getListX() + 32 - this.scrollX) - 16);
+        }
+        return TEXT_BOX_WIDTH;
+    }
+
+    private void renderSimpleCheckbox(GuiGraphics graphics, int x, int y, boolean checked) {
+        graphics.fill(x, y, x + INVERT_CHECKBOX_SIZE, y + INVERT_CHECKBOX_SIZE, COLOR_BACKGROUND);
+        graphics.fill(x, y, x + INVERT_CHECKBOX_SIZE, y + 1, checked ? COLOR_ACCENT : COLOR_BORDER);
+        graphics.fill(x, y + INVERT_CHECKBOX_SIZE - 1, x + INVERT_CHECKBOX_SIZE, y + INVERT_CHECKBOX_SIZE, checked ? COLOR_ACCENT : COLOR_BORDER);
+        graphics.fill(x, y, x + 1, y + INVERT_CHECKBOX_SIZE, checked ? COLOR_ACCENT : COLOR_BORDER);
+        graphics.fill(x + INVERT_CHECKBOX_SIZE - 1, y, x + INVERT_CHECKBOX_SIZE, y + INVERT_CHECKBOX_SIZE, checked ? COLOR_ACCENT : COLOR_BORDER);
+        if (checked) {
+            graphics.fill(x + 3, y + 3, x + INVERT_CHECKBOX_SIZE - 3, y + INVERT_CHECKBOX_SIZE - 3, COLOR_ACCENT);
+        }
     }
 
     private boolean isInsideList(double mouseX, double mouseY) {
@@ -938,6 +1129,8 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         ROW,
         HANDLE,
         DELETE,
+        INVERT,
+        TAG_MATCH_MODE,
         PLUS
     }
 
@@ -946,6 +1139,7 @@ public class EzBalanceTabScreen extends AbstractEzBalanceScreen {
         private final RowType type;
         private EditBox textBox;
         private String label = "";
+        private boolean inverted;
 
         private RowEntry(RowSection section, RowType type) {
             this.section = section;

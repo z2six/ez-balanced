@@ -61,6 +61,7 @@ public class EzBalanceItemGroupEnchantmentScreen extends AbstractEzBalanceScreen
         EzBalanceItemGroupDefinition itemGroup = getItemGroup();
         itemGroup.allowedEnchantments.clear();
         itemGroup.forceDisabledEnchants = false;
+        persistChanges();
     }
 
     private void toggleEnchantment(String enchantmentId) {
@@ -70,12 +71,14 @@ public class EzBalanceItemGroupEnchantmentScreen extends AbstractEzBalanceScreen
         } else {
             itemGroup.allowedEnchantments.add(enchantmentId);
         }
+        persistChanges();
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && isInsideForceDisabledToggle(mouseX, mouseY)) {
             getItemGroup().forceDisabledEnchants = !getItemGroup().forceDisabledEnchants;
+            persistChanges();
             return true;
         }
         if (button == 0 && isInsideScrollbar(mouseX, mouseY)) {
@@ -196,12 +199,11 @@ public class EzBalanceItemGroupEnchantmentScreen extends AbstractEzBalanceScreen
     private void renderScrollbar(GuiGraphics graphics) {
         int trackX = this.width - 24;
         int trackHeight = this.height - LIST_TOP - 44;
-        graphics.fill(trackX, LIST_TOP, trackX + TRACK_WIDTH, LIST_TOP + trackHeight, COLOR_BORDER);
         int rowCount = this.visibleEnchantments.isEmpty() ? getVisibleRows() : this.visibleEnchantments.size();
         int thumbHeight = Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), rowCount));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        graphics.fill(trackX, thumbY, trackX + TRACK_WIDTH, thumbY + thumbHeight, COLOR_ACCENT);
+        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, LIST_TOP, LIST_TOP + trackHeight, TRACK_WIDTH, thumbY, thumbHeight);
     }
 
     private String trimToWidth(String text, int width) {
@@ -219,5 +221,13 @@ public class EzBalanceItemGroupEnchantmentScreen extends AbstractEzBalanceScreen
     @Override
     public void onClose() {
         this.minecraft.setScreen(this.parent);
+    }
+
+    private void persistChanges() {
+        if (this.parent instanceof EzBalanceItemGroupEditScreen screen) {
+            screen.persistChanges();
+        } else {
+            EzBalanceClientPersistence.persist(this.config);
+        }
     }
 }

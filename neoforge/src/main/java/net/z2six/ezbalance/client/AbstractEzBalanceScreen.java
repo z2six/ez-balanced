@@ -49,19 +49,11 @@ abstract class AbstractEzBalanceScreen extends Screen {
     }
 
     protected Button customButton(String text, int x, int y, int width, int height, Button.OnPress onPress) {
-        return EzBalanceButton.create(Component.literal(text), x, y, width, height, onPress);
+        return EzBalanceUi.createButton(Component.literal(text), x, y, width, height, onPress);
     }
 
     protected void drawInlineButton(GuiGraphics graphics, int x, int y, int width, int height, String text, boolean accent, boolean hovered) {
-        int fill = hovered ? 0xFF242424 : COLOR_BACKGROUND;
-        int border = accent || hovered ? COLOR_ACCENT : COLOR_BORDER;
-        int textColor = hovered ? 0xFFFFFFFF : COLOR_TEXT;
-        graphics.fill(x, y, x + width, y + height, fill);
-        graphics.fill(x, y, x + width, y + 1, border);
-        graphics.fill(x, y + height - 1, x + width, y + height, border);
-        graphics.fill(x, y, x + 1, y + height, border);
-        graphics.fill(x + width - 1, y, x + width, y + height, border);
-        graphics.drawString(this.font, text, x + (width - this.font.width(text)) / 2, y + 6, textColor, false);
+        EzBalanceUi.drawInlineButton(graphics, x, y, width, height, text, accent, hovered);
     }
 
     protected static Set<String> parseCsvSet(String value) {

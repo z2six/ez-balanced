@@ -1,5 +1,8 @@
 package net.z2six.ezbalance.balance;
 
+import net.z2six.ezbalance.balance.EzBalanceAttributeNormalizationRule;
+import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
+
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
@@ -15,12 +18,15 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 
 import java.lang.reflect.Method;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 public final class EzBalanceRuntime {
     public static final String ATTACK_DAMAGE_ATTRIBUTE_ID = "minecraft:generic.attack_damage";
@@ -121,33 +127,40 @@ public final class EzBalanceRuntime {
             return resolved;
         }
 
-        if (!rule.rarityId.isBlank()) {
-            EzBalanceRarityDefinition rarity = config.rarities.get(rule.rarityId);
-            if (rarity != null && rarity.attributeValues != null) {
-                if (rule.appliedRarityAttributes == null || rule.appliedRarityAttributes.isEmpty()) {
-                    resolved.putAll(rarity.attributeValues);
-                } else {
-                    for (String attributeId : rule.appliedRarityAttributes) {
-                        Double value = rarity.attributeValues.get(attributeId);
-                        if (value != null) {
-                            resolved.put(attributeId, value);
-                        }
+        Map<String, Double> base = new LinkedHashMap<>(getBaseAttributes(config, itemId));
+
+        for (String groupId : getAssignedItemGroupIds(config, itemId)) {
+            EzBalanceItemGroupDefinition itemGroup = config.itemGroups.get(groupId);
+            if (itemGroup == null || itemGroup.attributeValues == null) {
+                continue;
+            }
+            Set<String> scopedAttributes = getAppliedItemGroupAttributes(rule, groupId);
+            if (scopedAttributes.isEmpty()) {
+                itemGroup.attributeValues.forEach((attributeId, value) -> {
+                    if (value != null && !resolved.containsKey(attributeId)) {
+                        resolved.put(attributeId, applyNormalization(config, itemId, attributeId, value));
+                    }
+                });
+            } else {
+                for (String attributeId : scopedAttributes) {
+                    Double value = itemGroup.attributeValues.get(attributeId);
+                    if (value != null && !resolved.containsKey(attributeId)) {
+                        resolved.put(attributeId, applyNormalization(config, itemId, attributeId, value));
                     }
                 }
             }
         }
 
-        if (!rule.itemGroupId.isBlank()) {
-            EzBalanceItemGroupDefinition itemGroup = config.itemGroups.get(rule.itemGroupId);
-            if (itemGroup != null && itemGroup.attributeValues != null) {
-                if (rule.appliedItemGroupAttributes == null || rule.appliedItemGroupAttributes.isEmpty()) {
-                    resolved.putAll(itemGroup.attributeValues);
+        if (!rule.rarityId.isBlank()) {
+            EzBalanceRarityDefinition rarity = config.rarities.get(rule.rarityId);
+            if (rarity != null && rarity.attributeModifiers != null) {
+                Set<String> scopedAttributes = rule.appliedRarityAttributes == null ? Set.of() : rule.appliedRarityAttributes;
+                if (scopedAttributes.isEmpty()) {
+                    rarity.attributeModifiers.forEach((attributeId, modifierExpression) -> applyRarityModifier(config, itemId, resolved, base, attributeId, modifierExpression));
                 } else {
-                    for (String attributeId : rule.appliedItemGroupAttributes) {
-                        Double value = itemGroup.attributeValues.get(attributeId);
-                        if (value != null) {
-                            resolved.put(attributeId, value);
-                        }
+                    for (String attributeId : scopedAttributes) {
+                        String modifierExpression = rarity.attributeModifiers.get(attributeId);
+                        applyRarityModifier(config, itemId, resolved, base, attributeId, modifierExpression);
                     }
                 }
             }
@@ -158,6 +171,111 @@ public final class EzBalanceRuntime {
         }
 
         return resolved;
+    }
+
+    public static double applyNormalization(EzBalanceConfig config, String itemId, String attributeId, double targetValue) {
+        String normalized = normalizeAttributeId(attributeId);
+        if (config == null || config.normalization == null || !config.normalization.enabled || normalized.isBlank()) {
+            return targetValue;
+        }
+
+        Map<String, Double> original = getOriginalAttributes(config, itemId);
+        Double originalValue = original.get(normalized);
+        if (originalValue == null) {
+            originalValue = collectBaseAttributes(itemId).get(normalized);
+        }
+        if (originalValue == null) {
+            return targetValue;
+        }
+
+        EzBalanceAttributeNormalizationRule rule = getNormalizationRule(config, normalized);
+        double preserveFactor = Math.clamp(config.normalization.preserveFactor, 0.0D, 1.0D);
+        double offset = (originalValue - targetValue) * preserveFactor;
+        double reference = Math.max(1.0D, Math.abs(targetValue));
+        double minOffset = rule != null && rule.minRawOffset != null
+                ? rule.minRawOffset
+                : config.normalization.defaultMinRawOffset != null
+                ? config.normalization.defaultMinRawOffset
+                : getMinPercent(config, rule) * reference;
+        double maxOffset = rule != null && rule.maxRawOffset != null
+                ? rule.maxRawOffset
+                : config.normalization.defaultMaxRawOffset != null
+                ? config.normalization.defaultMaxRawOffset
+                : getMaxPercent(config, rule) * reference;
+
+        if (minOffset > maxOffset) {
+            double swap = minOffset;
+            minOffset = maxOffset;
+            maxOffset = swap;
+        }
+
+        return targetValue + Math.clamp(offset, minOffset, maxOffset);
+    }
+
+    public static Set<String> getAssignedItemGroupIds(EzBalanceConfig config, String itemId) {
+        EzBalanceItemRule rule = config.items.get(itemId);
+        if (rule == null || rule.itemGroupIds == null) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(rule.itemGroupIds);
+    }
+
+    public static Set<String> getAppliedItemGroupAttributes(EzBalanceItemRule rule, String groupId) {
+        if (rule == null || groupId == null || groupId.isBlank() || rule.appliedItemGroupAttributesByGroup == null) {
+            return Set.of();
+        }
+        return rule.appliedItemGroupAttributesByGroup.getOrDefault(groupId, Set.of());
+    }
+
+    public static boolean isItemGroupEnchantRulesApplied(EzBalanceConfig config, String itemId, String groupId) {
+        EzBalanceItemRule rule = config.items.get(itemId);
+        return rule != null && rule.itemGroupEnchantRuleIds != null && rule.itemGroupEnchantRuleIds.contains(groupId);
+    }
+
+    public static Map<String, Double> getBaseAttributes(EzBalanceConfig config, String itemId) {
+        Map<String, Double> captured = getOriginalAttributes(config, itemId);
+        if (!captured.isEmpty()) {
+            return captured;
+        }
+        return collectBaseAttributes(itemId);
+    }
+
+    public static Double applyRarityModifierExpression(double currentValue, String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        String trimmed = expression.trim();
+        if (trimmed.endsWith("%")) {
+            Double percent = parseDouble(trimmed.substring(0, trimmed.length() - 1));
+            if (percent == null) {
+                return null;
+            }
+            return currentValue * (1.0D + percent / 100.0D);
+        }
+        Double raw = parseDouble(trimmed);
+        if (raw == null) {
+            return null;
+        }
+        return currentValue + raw;
+    }
+
+    public static EzBalanceAttributeNormalizationRule getNormalizationRule(EzBalanceConfig config, String attributeId) {
+        if (config == null || config.normalization == null || config.normalization.attributes == null) {
+            return null;
+        }
+        String normalized = normalizeAttributeId(attributeId);
+        return config.normalization.attributes.stream()
+                .filter(rule -> normalized.equals(normalizeAttributeId(rule.attributeId)))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static double getMinPercent(EzBalanceConfig config, EzBalanceAttributeNormalizationRule rule) {
+        return rule == null ? config.normalization.defaultMinPercent : rule.minPercent;
+    }
+
+    private static double getMaxPercent(EzBalanceConfig config, EzBalanceAttributeNormalizationRule rule) {
+        return rule == null ? config.normalization.defaultMaxPercent : rule.maxPercent;
     }
 
     public static double calculateProjectedDps(Map<String, Double> attributes) {
@@ -254,44 +372,103 @@ public final class EzBalanceRuntime {
         if (rule != null && rule.hasCustomEnchantmentRules()) {
             return true;
         }
-        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
-        return itemGroup != null && (itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty());
+        return getAssignedItemGroupsWithEnchantRules(config, itemId).stream()
+                .anyMatch(itemGroup -> itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty());
     }
 
     public static EzBalanceItemGroupDefinition getAssignedItemGroup(EzBalanceConfig config, String itemId) {
-        EzBalanceItemRule rule = config.items.get(itemId);
-        if (rule == null || rule.itemGroupId.isBlank()) {
-            return null;
+        return getAssignedItemGroups(config, itemId).stream().findFirst().orElse(null);
+    }
+
+    public static List<EzBalanceItemGroupDefinition> getAssignedItemGroups(EzBalanceConfig config, String itemId) {
+        return getAssignedItemGroupIds(config, itemId).stream()
+                .map(config.itemGroups::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    public static List<EzBalanceItemGroupDefinition> getAssignedItemGroupsWithEnchantRules(EzBalanceConfig config, String itemId) {
+        return getAssignedItemGroupIds(config, itemId).stream()
+                .filter(groupId -> isItemGroupEnchantRulesApplied(config, itemId, groupId))
+                .map(config.itemGroups::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    public static boolean canAssignItemGroup(EzBalanceConfig config, String itemId, String itemGroupId, Iterable<String> scope) {
+        return getItemGroupConflictReasons(config, itemId, itemGroupId, scope).isEmpty();
+    }
+
+    public static List<String> getItemGroupConflictReasons(EzBalanceConfig config, String itemId, String itemGroupId, Iterable<String> scope) {
+        EzBalanceItemGroupDefinition newGroup = config.itemGroups.get(itemGroupId);
+        if (newGroup == null) {
+            return List.of("Item group does not exist.");
         }
-        return config.itemGroups.get(rule.itemGroupId);
+        Set<String> scopedAttributes = new LinkedHashSet<>();
+        for (String attributeId : scope) {
+            String normalized = normalizeAttributeId(attributeId);
+            if (!normalized.isBlank() && newGroup.attributeValues.containsKey(normalized)) {
+                scopedAttributes.add(normalized);
+            }
+        }
+        List<String> reasons = new java.util.ArrayList<>();
+        for (String existingId : getAssignedItemGroupIds(config, itemId)) {
+            if (existingId.equals(itemGroupId)) {
+                return List.of();
+            }
+            EzBalanceItemGroupDefinition existing = config.itemGroups.get(existingId);
+            if (existing == null) {
+                continue;
+            }
+            Set<String> existingScoped = getAppliedItemGroupAttributes(config.items.get(itemId), existingId);
+            Set<String> existingAttributes = existingScoped.isEmpty() ? existing.attributeValues.keySet() : existingScoped;
+            Set<String> overlappingAttributes = existingAttributes.stream()
+                    .filter(scopedAttributes::contains)
+                    .sorted()
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            if (!overlappingAttributes.isEmpty()) {
+                reasons.add("Attributes overlap with " + getItemGroupName(existing, existingId) + ": " + String.join(", ", overlappingAttributes));
+            }
+            Set<String> overlappingEnchantments = existing.allowedEnchantments.stream()
+                    .filter(newGroup.allowedEnchantments::contains)
+                    .sorted()
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            if (!overlappingEnchantments.isEmpty()) {
+                reasons.add("Allowed enchants overlap with " + getItemGroupName(existing, existingId) + ": " + String.join(", ", overlappingEnchantments));
+            }
+            if (existing.forceDisabledEnchants && newGroup.forceDisabledEnchants) {
+                reasons.add("Both " + getItemGroupName(existing, existingId) + " and " + getItemGroupName(newGroup, itemGroupId) + " force-disable default enchants.");
+            }
+        }
+        return reasons;
     }
 
     public static boolean isEnchantmentAllowedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment, boolean defaultAllowed) {
-        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
-        if (itemGroup == null) {
-            return defaultAllowed;
-        }
         String enchantmentId = getEnchantmentId(enchantment);
-        if (itemGroup.allowedEnchantments.contains(enchantmentId)) {
-            return true;
+        boolean allowed = defaultAllowed;
+        for (EzBalanceItemGroupDefinition itemGroup : getAssignedItemGroupsWithEnchantRules(config, itemId)) {
+            if (itemGroup.allowedEnchantments.contains(enchantmentId)) {
+                allowed = true;
+                continue;
+            }
+            if (itemGroup.forceDisabledEnchants && defaultAllowed) {
+                allowed = false;
+            }
         }
-        if (itemGroup.forceDisabledEnchants && defaultAllowed) {
-            return false;
-        }
-        return defaultAllowed;
+        return allowed;
     }
 
     public static boolean isEnchantmentExplicitlyAllowedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment) {
-        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
-        return itemGroup != null && itemGroup.allowedEnchantments.contains(getEnchantmentId(enchantment));
+        String enchantmentId = getEnchantmentId(enchantment);
+        return getAssignedItemGroupsWithEnchantRules(config, itemId).stream().anyMatch(itemGroup -> itemGroup.allowedEnchantments.contains(enchantmentId));
     }
 
     public static boolean isEnchantmentExplicitlyBlockedByItemGroup(EzBalanceConfig config, String itemId, Holder<Enchantment> enchantment, boolean defaultAllowed) {
-        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
-        return itemGroup != null
-                && itemGroup.forceDisabledEnchants
-                && defaultAllowed
-                && !itemGroup.allowedEnchantments.contains(getEnchantmentId(enchantment));
+        String enchantmentId = getEnchantmentId(enchantment);
+        return getAssignedItemGroupsWithEnchantRules(config, itemId).stream().anyMatch(itemGroup ->
+                itemGroup.forceDisabledEnchants
+                        && defaultAllowed
+                        && !itemGroup.allowedEnchantments.contains(enchantmentId));
     }
 
     public static boolean matchesTab(EzBalanceTabDefinition tab, Item item) {
@@ -322,11 +499,31 @@ public final class EzBalanceRuntime {
                 return false;
             }
         }
+        for (String filter : tab.excludedNameFilters) {
+            String lowered = filter.toLowerCase(Locale.ROOT);
+            if (searchBase.contains(lowered) || hoverName.contains(lowered)) {
+                return false;
+            }
+        }
         if (!tab.includeTags.isEmpty()) {
-            for (String tag : tab.includeTags) {
-                ResourceLocation location = ResourceLocation.tryParse(tag);
-                if (location == null || !stack.is(TagKey.create(Registries.ITEM, location))) {
+            if (tab.matchAnyTags) {
+                boolean matched = false;
+                for (String tag : tab.includeTags) {
+                    ResourceLocation location = ResourceLocation.tryParse(tag);
+                    if (location != null && stack.is(TagKey.create(Registries.ITEM, location))) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) {
                     return false;
+                }
+            } else {
+                for (String tag : tab.includeTags) {
+                    ResourceLocation location = ResourceLocation.tryParse(tag);
+                    if (location == null || !stack.is(TagKey.create(Registries.ITEM, location))) {
+                        return false;
+                    }
                 }
             }
         }
@@ -346,6 +543,15 @@ public final class EzBalanceRuntime {
                     return false;
                 }
             } else if (matches == 0) {
+                return false;
+            }
+        }
+        if (!tab.excludedAttributes.isEmpty()) {
+            long excludedMatches = tab.excludedAttributes.stream()
+                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .filter(attributes::containsKey)
+                    .count();
+            if (excludedMatches > 0) {
                 return false;
             }
         }
@@ -382,14 +588,56 @@ public final class EzBalanceRuntime {
                     Component.literal("Custom enchant rules: " + (rule.allowedEnchantments.size() + rule.blockedEnchantments.size())).withStyle(ChatFormatting.DARK_GRAY)
             );
         }
-        EzBalanceItemGroupDefinition itemGroup = getAssignedItemGroup(config, itemId);
-        if (itemGroup != null && (itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty())) {
+        List<EzBalanceItemGroupDefinition> itemGroups = getAssignedItemGroups(config, itemId);
+        if (!itemGroups.isEmpty()) {
+            long touched = itemGroups.stream()
+                    .mapToLong(itemGroup -> itemGroup.allowedEnchantments.size())
+                    .sum();
             return List.of(
                     Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY),
-                    Component.literal("Custom enchant rules: " + itemGroup.allowedEnchantments.size()).withStyle(ChatFormatting.DARK_GRAY)
+                    Component.literal("Custom enchant rules: " + touched).withStyle(ChatFormatting.DARK_GRAY)
             );
         }
         return List.of(Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY));
+    }
+
+    private static void applyRarityModifier(EzBalanceConfig config, String itemId, Map<String, Double> resolved, Map<String, Double> base, String attributeId, String modifierExpression) {
+        String normalized = normalizeAttributeId(attributeId);
+        if (normalized.isBlank() || modifierExpression == null || modifierExpression.isBlank()) {
+            return;
+        }
+        double currentValue = resolved.containsKey(normalized)
+                ? resolved.get(normalized)
+                : base.getOrDefault(normalized, 0.0D);
+        Double targetValue = applyRarityModifierExpression(currentValue, modifierExpression);
+        if (targetValue != null) {
+            resolved.put(normalized, targetValue);
+        }
+    }
+
+    private static Double parseDouble(String value) {
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static boolean hasEnchantmentConflict(EzBalanceItemGroupDefinition left, EzBalanceItemGroupDefinition right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.allowedEnchantments.stream().anyMatch(right.allowedEnchantments::contains)) {
+            return true;
+        }
+        return left.forceDisabledEnchants && right.forceDisabledEnchants;
+    }
+
+    private static String getItemGroupName(EzBalanceItemGroupDefinition itemGroup, String fallbackId) {
+        if (itemGroup == null) {
+            return fallbackId;
+        }
+        return itemGroup.name == null || itemGroup.name.isBlank() ? fallbackId : itemGroup.name;
     }
 
     private static Method findSupportsEnchantmentMethod() {

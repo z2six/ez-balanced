@@ -1,5 +1,9 @@
 package net.z2six.ezbalance.balance;
 
+import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
+import net.z2six.ezbalance.balance.EzBalanceNormalizationConfig;
+import net.z2six.ezbalance.balance.EzBalanceRarityDefinition;
+
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -16,6 +20,7 @@ public final class EzBalanceConfig {
     public Map<String, EzBalanceItemGroupDefinition> itemGroups = new LinkedHashMap<>();
     public Map<String, EzBalanceItemRule> items = new LinkedHashMap<>();
     public Map<String, Map<String, Double>> originalAttributes = new LinkedHashMap<>();
+    public EzBalanceNormalizationConfig normalization = new EzBalanceNormalizationConfig();
 
     public static EzBalanceConfig createDefault() {
         EzBalanceConfig config = new EzBalanceConfig();
@@ -70,6 +75,9 @@ public final class EzBalanceConfig {
         if (this.originalAttributes == null) {
             this.originalAttributes = new LinkedHashMap<>();
         }
+        if (this.normalization == null) {
+            this.normalization = new EzBalanceNormalizationConfig();
+        }
 
         if (this.tabs.isEmpty()) {
             EzBalanceConfig defaults = createDefault();
@@ -80,9 +88,19 @@ public final class EzBalanceConfig {
             tab.requiredAttributes = tab.requiredAttributes.stream()
                     .map(EzBalanceRuntime::normalizeAttributeId)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (tab.excludedAttributes == null) {
+                tab.excludedAttributes = new LinkedHashSet<>();
+            }
+            tab.excludedAttributes = tab.excludedAttributes.stream()
+                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .filter(value -> !value.isBlank())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
             tab.attributeRanges = normalizeAttributeMap(tab.attributeRanges);
             if (tab.nameFilters == null) {
                 tab.nameFilters = new ArrayList<>();
+            }
+            if (tab.excludedNameFilters == null) {
+                tab.excludedNameFilters = new ArrayList<>();
             }
             if (tab.nameFilters.isEmpty() && tab.searchText != null && !tab.searchText.isBlank()) {
                 tab.nameFilters.add(tab.searchText.trim());
@@ -91,14 +109,28 @@ public final class EzBalanceConfig {
                     .map(value -> value == null ? "" : value.trim())
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(ArrayList::new));
+            tab.excludedNameFilters = tab.excludedNameFilters.stream()
+                    .map(value -> value == null ? "" : value.trim())
+                    .filter(value -> !value.isBlank())
+                    .collect(Collectors.toCollection(ArrayList::new));
             tab.displayAttributes = normalizeAttributeList(tab.displayAttributes);
-            if (tab.displayAttributes.isEmpty() && ("weapons".equals(tab.id) || "armor".equals(tab.id))) {
-                tab.displayAttributes = defaultDisplayAttributesFor(tab.id);
-            }
             tab.searchText = tab.nameFilters.isEmpty() ? "" : tab.nameFilters.getFirst();
         });
 
         this.rarities.values().forEach(rarity -> rarity.attributeValues = normalizeAttributeMap(rarity.attributeValues));
+        this.rarities.values().forEach(rarity -> {
+            if (rarity.attributeModifiers == null) {
+                rarity.attributeModifiers = new LinkedHashMap<>();
+            }
+            if (rarity.attributeModifiers.isEmpty() && rarity.attributeValues != null && !rarity.attributeValues.isEmpty()) {
+                rarity.attributeValues.forEach((attributeId, value) -> {
+                    if (value != null) {
+                        rarity.attributeModifiers.put(EzBalanceRuntime.normalizeAttributeId(attributeId), Double.toString(value));
+                    }
+                });
+            }
+            rarity.attributeModifiers = normalizeModifierMap(rarity.attributeModifiers);
+        });
         this.itemGroups.values().forEach(group -> {
             group.attributeValues = normalizeAttributeMap(group.attributeValues);
             if (group.allowedEnchantments == null) {
@@ -110,6 +142,15 @@ public final class EzBalanceConfig {
             if (rule.appliedRarityAttributes == null) {
                 rule.appliedRarityAttributes = new LinkedHashSet<>();
             }
+            if (rule.itemGroupIds == null) {
+                rule.itemGroupIds = new LinkedHashSet<>();
+            }
+            if (rule.appliedItemGroupAttributesByGroup == null) {
+                rule.appliedItemGroupAttributesByGroup = new LinkedHashMap<>();
+            }
+            if (rule.itemGroupEnchantRuleIds == null) {
+                rule.itemGroupEnchantRuleIds = new LinkedHashSet<>();
+            }
             if (rule.appliedItemGroupAttributes == null) {
                 rule.appliedItemGroupAttributes = new LinkedHashSet<>();
             }
@@ -119,16 +160,54 @@ public final class EzBalanceConfig {
             if (rule.blockedEnchantments == null) {
                 rule.blockedEnchantments = new LinkedHashSet<>();
             }
+            if (!rule.itemGroupId.isBlank() && rule.itemGroupIds.isEmpty()) {
+                rule.itemGroupIds.add(rule.itemGroupId);
+                rule.appliedItemGroupAttributesByGroup.put(
+                        rule.itemGroupId,
+                        rule.appliedItemGroupAttributes.stream()
+                                .map(EzBalanceRuntime::normalizeAttributeId)
+                                .filter(value -> !value.isBlank())
+                                .collect(Collectors.toCollection(LinkedHashSet::new))
+                );
+            }
             rule.appliedRarityAttributes = rule.appliedRarityAttributes.stream()
                     .map(EzBalanceRuntime::normalizeAttributeId)
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
-            rule.appliedItemGroupAttributes = rule.appliedItemGroupAttributes.stream()
-                    .map(EzBalanceRuntime::normalizeAttributeId)
+            rule.itemGroupIds = rule.itemGroupIds.stream()
+                    .map(value -> value == null ? "" : value.trim())
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
+            rule.itemGroupEnchantRuleIds = rule.itemGroupEnchantRuleIds.stream()
+                    .map(value -> value == null ? "" : value.trim())
+                    .filter(value -> !value.isBlank())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            rule.appliedItemGroupAttributesByGroup.replaceAll((groupId, attrs) -> attrs == null
+                    ? new LinkedHashSet<>()
+                    : attrs.stream()
+                            .map(EzBalanceRuntime::normalizeAttributeId)
+                            .filter(value -> !value.isBlank())
+                            .collect(Collectors.toCollection(LinkedHashSet::new)));
+            rule.appliedItemGroupAttributesByGroup.entrySet().removeIf(entry -> entry.getKey() == null || entry.getKey().isBlank());
+            if (rule.itemGroupEnchantRuleIds.isEmpty() && !rule.itemGroupIds.isEmpty()) {
+                rule.itemGroupIds.stream()
+                        .filter(groupId -> {
+                            EzBalanceItemGroupDefinition group = this.itemGroups.get(groupId);
+                            return group != null && (group.forceDisabledEnchants || !group.allowedEnchantments.isEmpty());
+                        })
+                        .forEach(rule.itemGroupEnchantRuleIds::add);
+            }
+            rule.itemGroupId = "";
+            rule.appliedItemGroupAttributes = new LinkedHashSet<>();
         });
         this.originalAttributes.replaceAll((itemId, values) -> normalizeAttributeMap(values));
+        if (this.normalization.attributes == null) {
+            this.normalization.attributes = new ArrayList<>();
+        }
+        this.normalization.attributes.forEach(rule -> {
+            rule.attributeId = EzBalanceRuntime.normalizeAttributeId(rule.attributeId);
+        });
+        this.normalization.attributes.removeIf(rule -> rule.attributeId == null || rule.attributeId.isBlank());
 
         this.schemaVersion = CURRENT_SCHEMA;
         return this;
@@ -157,17 +236,19 @@ public final class EzBalanceConfig {
         return normalized;
     }
 
-    private static List<String> defaultDisplayAttributesFor(String tabId) {
-        List<String> defaults = new ArrayList<>();
-        if ("armor".equals(tabId)) {
-            defaults.add(EzBalanceRuntime.ARMOR_ATTRIBUTE_ID);
-            defaults.add("minecraft:generic.armor_toughness");
-            defaults.add("minecraft:generic.knockback_resistance");
-        } else {
-            defaults.add(EzBalanceRuntime.ATTACK_DAMAGE_ATTRIBUTE_ID);
-            defaults.add("minecraft:generic.attack_speed");
-            defaults.add("minecraft:generic.attack_knockback");
+    private static Map<String, String> normalizeModifierMap(Map<String, String> source) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        if (source == null) {
+            return normalized;
         }
-        return defaults;
+
+        source.forEach((key, value) -> {
+            String normalizedKey = EzBalanceRuntime.normalizeAttributeId(key);
+            String normalizedValue = value == null ? "" : value.trim();
+            if (!normalizedKey.isBlank() && !normalizedValue.isBlank()) {
+                normalized.put(normalizedKey, normalizedValue);
+            }
+        });
+        return normalized;
     }
 }
