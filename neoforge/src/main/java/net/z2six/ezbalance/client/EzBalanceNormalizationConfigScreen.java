@@ -367,7 +367,7 @@ public class EzBalanceNormalizationConfigScreen extends AbstractEzBalanceScreen 
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight, this.draggingVerticalScrollbar);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics) {
@@ -376,7 +376,7 @@ public class EzBalanceNormalizationConfigScreen extends AbstractEzBalanceScreen 
         int thumbWidth = Math.max(24, trackWidth * getListWidth() / Math.max(getListWidth(), CONTENT_WIDTH));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = getListX() + (getMaxScrollX() == 0 ? 0 : maxTravel * this.scrollX / getMaxScrollX());
-        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth, this.draggingHorizontalScrollbar);
     }
 
     private int getListX() {

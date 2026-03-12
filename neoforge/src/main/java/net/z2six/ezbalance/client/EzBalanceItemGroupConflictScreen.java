@@ -124,14 +124,14 @@ public class EzBalanceItemGroupConflictScreen extends AbstractEzBalanceScreen {
                 : Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), this.rows.size()));
         int verticalMaxTravel = Math.max(0, trackHeight - verticalThumbHeight);
         int verticalThumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : verticalMaxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, viewportRight + TRACK_GAP, LIST_TOP, getViewportBottom(), TRACK_SIZE, verticalThumbY, verticalThumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, viewportRight + TRACK_GAP, LIST_TOP, getViewportBottom(), TRACK_SIZE, verticalThumbY, verticalThumbHeight, this.draggingVerticalScrollbar);
 
         int trackTop = getViewportBottom() + TRACK_GAP;
         int trackWidth = getViewportRight() - 24;
         int horizontalThumbWidth = Math.max(18, trackWidth * trackWidth / Math.max(trackWidth, CONTENT_WIDTH));
         int horizontalMaxTravel = Math.max(0, trackWidth - horizontalThumbWidth);
         int horizontalThumbX = 24 + (getMaxHorizontalScroll() == 0 ? 0 : horizontalMaxTravel * this.scrollX / getMaxHorizontalScroll());
-        EzBalanceUi.drawHorizontalScrollbar(graphics, 24, getViewportRight(), trackTop, TRACK_SIZE, horizontalThumbX, horizontalThumbWidth);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, 24, getViewportRight(), trackTop, TRACK_SIZE, horizontalThumbX, horizontalThumbWidth, this.draggingHorizontalScrollbar);
     }
 
     private boolean isInsideList(double mouseX, double mouseY) {

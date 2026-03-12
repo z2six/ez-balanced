@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
-    private static final int LIST_TOP = 108;
+    private static final int BASE_LIST_TOP = 108;
     private static final int ROW_HEIGHT = 28;
     private static final int TRACK_WIDTH = 4;
 
@@ -86,7 +86,7 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
             return true;
         }
         if (button == 0 && isInsideList(mouseX, mouseY)) {
-            int row = (int) ((mouseY - LIST_TOP) / ROW_HEIGHT);
+            int row = (int) ((mouseY - getListTop()) / ROW_HEIGHT);
             int index = this.scrollRow + row;
             if (index >= 0 && index < this.attributes.size()) {
                 String attributeId = this.attributes.get(index);
@@ -133,8 +133,8 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
         drawLabel(graphics, (this.mode == EzBalanceApplyMode.RARITY ? "Rarity: " : "Item group: ") + this.selectedLabel, 24, 40, false);
         drawLabel(graphics, "Target items: " + this.targetItems.size(), 24, 84, false);
         if (this.showEnchantOverrideToggle) {
-            renderSimpleCheckbox(graphics, 24, 84, this.overrideEnchants);
-            drawLabel(graphics, "Override enchants", 42, 86, false);
+            renderSimpleCheckbox(graphics, 24, 98, this.overrideEnchants);
+            drawLabel(graphics, "Override enchants", 42, 100, false);
         }
         renderRows(graphics, mouseX, mouseY);
         renderScrollbar(graphics);
@@ -150,7 +150,7 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
                 break;
             }
             String attributeId = this.attributes.get(index);
-            int y = LIST_TOP + visibleIndex * ROW_HEIGHT;
+            int y = getListTop() + visibleIndex * ROW_HEIGHT;
             boolean hovered = mouseX >= 24 && mouseX <= listRight && mouseY >= y && mouseY <= y + ROW_HEIGHT - 2;
             graphics.fill(24, y, listRight, y + ROW_HEIGHT - 2, hovered ? (0x22111111 | COLOR_ACCENT) : (visibleIndex % 2 == 0 ? COLOR_SURFACE : COLOR_SURFACE_ALT));
             renderSimpleCheckbox(graphics, 32, y + 8, Boolean.TRUE.equals(this.selectedAttributes.get(attributeId)));
@@ -171,16 +171,16 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
 
     private void renderScrollbar(GuiGraphics graphics) {
         int trackX = this.width - 24;
-        int trackHeight = this.height - LIST_TOP - 44;
+        int trackHeight = this.height - getListTop() - 44;
         int rowCount = Math.max(getVisibleRows(), this.attributes.size());
         int thumbHeight = Math.max(18, trackHeight * getVisibleRows() / rowCount);
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
-        int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, LIST_TOP, LIST_TOP + trackHeight, TRACK_WIDTH, thumbY, thumbHeight);
+        int thumbY = getListTop() + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
+        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, getListTop(), getListTop() + trackHeight, TRACK_WIDTH, thumbY, thumbHeight, this.draggingScrollbar);
     }
 
     private int getVisibleRows() {
-        return Math.max(1, (this.height - LIST_TOP - 52) / ROW_HEIGHT);
+        return Math.max(1, (this.height - getListTop() - 52) / ROW_HEIGHT);
     }
 
     private int getMaxScrollRow() {
@@ -188,16 +188,16 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
     }
 
     private boolean isInsideList(double mouseX, double mouseY) {
-        return mouseX >= 24 && mouseX <= this.width - 32 && mouseY >= LIST_TOP && mouseY <= this.height - 44;
+        return mouseX >= 24 && mouseX <= this.width - 32 && mouseY >= getListTop() && mouseY <= this.height - 44;
     }
 
     private boolean isInsideScrollbar(double mouseX, double mouseY) {
         int trackX = this.width - 24;
-        return mouseX >= trackX && mouseX <= trackX + TRACK_WIDTH && mouseY >= LIST_TOP && mouseY <= this.height - 44;
+        return mouseX >= trackX && mouseX <= trackX + TRACK_WIDTH && mouseY >= getListTop() && mouseY <= this.height - 44;
     }
 
     private boolean isInsideEnchantToggle(double mouseX, double mouseY) {
-        return mouseX >= 24 && mouseX <= 200 && mouseY >= 82 && mouseY <= 98;
+        return mouseX >= 24 && mouseX <= 200 && mouseY >= 96 && mouseY <= 112;
     }
 
     private void updateScrollFromMouse(double mouseY) {
@@ -206,8 +206,12 @@ public class EzBalanceApplySelectionScreen extends AbstractEzBalanceScreen {
             this.scrollRow = 0;
             return;
         }
-        double ratio = (mouseY - LIST_TOP) / Math.max(1.0D, this.height - LIST_TOP - 44);
+        double ratio = (mouseY - getListTop()) / Math.max(1.0D, this.height - getListTop() - 44);
         this.scrollRow = Math.clamp((int) Math.round(ratio * maxScroll), 0, maxScroll);
+    }
+
+    private int getListTop() {
+        return this.showEnchantOverrideToggle ? BASE_LIST_TOP + 24 : BASE_LIST_TOP;
     }
 
     private String trimToWidth(String text, int width) {

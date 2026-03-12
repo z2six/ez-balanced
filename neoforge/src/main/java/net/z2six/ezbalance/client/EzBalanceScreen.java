@@ -1558,7 +1558,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 : Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), this.visibleItems.size()));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = y1 + (maxScroll == 0 ? 0 : maxTravel * this.itemScroll / maxScroll);
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight, this.draggingVerticalScrollbar);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics, int contentWidth) {
@@ -1572,7 +1572,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
                 : Math.max(24, trackWidth * getTableViewWidth() / Math.max(getTableViewWidth(), contentWidth));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = x1 + (maxScroll == 0 ? 0 : maxTravel * this.tableScrollX / maxScroll);
-        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth, this.draggingHorizontalScrollbar);
     }
 
     private void renderLeftVerticalScrollbar(GuiGraphics graphics) {
@@ -1584,7 +1584,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         int thumbHeight = Math.max(18, trackHeight * getLeftViewportHeight() / Math.max(getLeftViewportHeight(), getLeftPanelContentHeight()));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = y1 + (maxScroll == 0 ? 0 : maxTravel * this.leftPanelScrollY / maxScroll);
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, y1, y2, TABLE_SCROLLBAR_SIZE, thumbY, thumbHeight, this.draggingLeftVerticalScrollbar);
     }
 
     private void renderLeftHorizontalScrollbar(GuiGraphics graphics) {
@@ -1596,7 +1596,7 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         int thumbWidth = Math.max(24, trackWidth * getLeftViewportWidth() / Math.max(getLeftViewportWidth(), getLeftPanelContentWidth()));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = x1 + (maxScroll == 0 ? 0 : maxTravel * this.leftPanelScrollX / maxScroll);
-        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, x1, x2, y1, TABLE_SCROLLBAR_SIZE, thumbX, thumbWidth, this.draggingLeftHorizontalScrollbar);
     }
 
     private void renderResetScopeTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -1881,12 +1881,11 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
         if (groupIds.isEmpty()) {
             return "-";
         }
-        List<String> initials = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
         for (String groupId : groupIds) {
-            String label = getItemGroupOptionLabel(groupId);
-            initials.add(label.isBlank() ? "?" : label.substring(0, 1).toUpperCase(Locale.ROOT));
+            labels.add(getItemGroupOptionLabel(groupId));
         }
-        return String.join(", ", initials);
+        return String.join(", ", labels);
     }
 
     private String getRarityLabel(String itemId) {

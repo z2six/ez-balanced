@@ -74,7 +74,6 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         this.addRenderableWidget(this.nameBox);
 
         this.addRenderableWidget(customButton("Enchantment rules", 444, 56, 130, 20, button -> openEnchantmentRules()));
-        this.addRenderableWidget(customButton("Duplicate", this.width - 326, 56, 70, 20, button -> duplicateItemGroup()));
         this.addRenderableWidget(customButton("Save", this.width - 248, 56, 70, 20, button -> saveItemGroup()));
         this.addRenderableWidget(customButton("Delete", this.width - 170, 56, 70, 20, button -> deleteItemGroup()));
         this.addRenderableWidget(customButton("Back", this.width - 92, 56, 70, 20, button -> this.onClose()));
@@ -514,7 +513,7 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight, this.draggingVerticalScrollbar);
     }
 
     private void renderHorizontalScrollbar(GuiGraphics graphics) {
@@ -523,7 +522,7 @@ public class EzBalanceItemGroupEditScreen extends AbstractEzBalanceScreen {
         int thumbWidth = Math.max(24, trackWidth * getListWidth() / Math.max(getListWidth(), CONTENT_WIDTH));
         int maxTravel = Math.max(0, trackWidth - thumbWidth);
         int thumbX = getListX() + (getMaxScrollX() == 0 ? 0 : maxTravel * this.scrollX / getMaxScrollX());
-        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth);
+        EzBalanceUi.drawHorizontalScrollbar(graphics, getListX(), getListRight(), y1, TRACK_SIZE, thumbX, thumbWidth, this.draggingHorizontalScrollbar);
     }
 
     private int getListX() {

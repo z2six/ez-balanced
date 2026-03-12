@@ -67,6 +67,8 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
             if (hitbox != null) {
                 if (hitbox.plusRow()) {
                     this.minecraft.setScreen(new EzBalanceItemGroupEditScreen(this, this.config, ""));
+                } else if (hitbox.duplicateButton()) {
+                    duplicateItemGroup(hitbox.groupId());
                 } else if (hitbox.deleteButton()) {
                     deleteItemGroup(hitbox.groupId());
                 } else if (hitbox.editButton()) {
@@ -150,20 +152,23 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
                 String label = group == null || group.name.isBlank() || group.name.equals(groupId)
                         ? groupId
                         : group.name + " (" + groupId + ")";
-                drawTrimmed(graphics, label, listX + 12, rowY + 7, listRight - listX - ACTION_BUTTON_WIDTH * 2 - 32, COLOR_TEXT);
+                drawTrimmed(graphics, label, listX + 12, rowY + 7, listRight - listX - ACTION_BUTTON_WIDTH * 3 - 40, COLOR_TEXT);
                 drawTrimmed(
                         graphics,
                         (group == null ? 0 : group.attributeValues.size()) + " attrs",
                         listX + 12,
                         rowY + 19,
-                        listRight - listX - ACTION_BUTTON_WIDTH * 2 - 32,
+                        listRight - listX - ACTION_BUTTON_WIDTH * 3 - 40,
                         COLOR_MUTED
                 );
 
+                int duplicateX = listRight - ACTION_BUTTON_WIDTH * 3 - 22;
                 int deleteX = listRight - ACTION_BUTTON_WIDTH * 2 - 16;
                 int editX = listRight - ACTION_BUTTON_WIDTH - 10;
+                boolean duplicateHovered = mouseX >= duplicateX && mouseX <= duplicateX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
                 boolean deleteHovered = mouseX >= deleteX && mouseX <= deleteX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
                 boolean editHovered = mouseX >= editX && mouseX <= editX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
+                drawInlineButton(graphics, duplicateX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Copy", false, duplicateHovered);
                 drawInlineButton(graphics, deleteX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Delete", false, deleteHovered);
                 drawInlineButton(graphics, editX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Edit", false, editHovered);
             } else if (rowIndex == groupIds.size()) {
@@ -181,7 +186,7 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight, this.draggingScrollbar);
     }
 
     private int getListX() {
@@ -239,13 +244,18 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
             return null;
         }
         if (rowIndex == groupIds.size()) {
-            return new RowHitbox("", rowIndex, true, false, false);
+            return new RowHitbox("", rowIndex, true, false, false, false);
         }
 
         int rowY = LIST_TOP + visibleIndex * ROW_HEIGHT;
         int listRight = getListRight();
+        int duplicateX = listRight - ACTION_BUTTON_WIDTH * 3 - 22;
         int deleteX = listRight - ACTION_BUTTON_WIDTH * 2 - 16;
         int editX = listRight - ACTION_BUTTON_WIDTH - 10;
+        boolean duplicateButton = mouseX >= duplicateX
+                && mouseX <= duplicateX + ACTION_BUTTON_WIDTH
+                && mouseY >= rowY + 7
+                && mouseY <= rowY + 27;
         boolean deleteButton = mouseX >= deleteX
                 && mouseX <= deleteX + ACTION_BUTTON_WIDTH
                 && mouseY >= rowY + 7
@@ -254,7 +264,37 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
                 && mouseX <= editX + ACTION_BUTTON_WIDTH
                 && mouseY >= rowY + 7
                 && mouseY <= rowY + 27;
-        return new RowHitbox(groupIds.get(rowIndex), rowIndex, false, deleteButton, editButton);
+        return new RowHitbox(groupIds.get(rowIndex), rowIndex, false, duplicateButton, deleteButton, editButton);
+    }
+
+    private void duplicateItemGroup(String groupId) {
+        EzBalanceItemGroupDefinition source = this.config.itemGroups.get(groupId);
+        if (source == null) {
+            return;
+        }
+        String duplicateId = generateDuplicateId(groupId);
+        EzBalanceItemGroupDefinition copy = new EzBalanceItemGroupDefinition();
+        copy.id = duplicateId;
+        copy.name = source.name == null || source.name.isBlank() ? duplicateId : source.name + " Copy";
+        copy.attributeValues.putAll(source.attributeValues);
+        copy.forceDisabledEnchants = source.forceDisabledEnchants;
+        copy.allowedEnchantments.addAll(source.allowedEnchantments);
+        this.config.itemGroups.put(duplicateId, copy);
+        persistChanges();
+        this.minecraft.setScreen(new EzBalanceItemGroupEditScreen(this, this.config, duplicateId));
+    }
+
+    private String generateDuplicateId(String groupId) {
+        String root = sanitizeId(groupId);
+        if (root.isBlank()) {
+            root = "item_group";
+        }
+        String candidate = root + "_copy";
+        int index = 2;
+        while (this.config.itemGroups.containsKey(candidate)) {
+            candidate = root + "_copy_" + index++;
+        }
+        return candidate;
     }
 
     private void deleteItemGroup(String groupId) {
@@ -286,7 +326,7 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
 
     private void updateTooltipState(int mouseX, int mouseY) {
         RowHitbox hovered = getRowHitbox(mouseX, mouseY);
-        if (hovered != null && !hovered.plusRow() && !hovered.deleteButton() && !hovered.editButton()) {
+        if (hovered != null && !hovered.plusRow() && !hovered.duplicateButton() && !hovered.deleteButton() && !hovered.editButton()) {
             if (!hovered.groupId().equals(this.activeTooltipGroupId)) {
                 this.tooltipScrollLine = 0;
             }
@@ -331,7 +371,8 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
                     bounds.y2() - TOOLTIP_PADDING,
                     TOOLTIP_TRACK_SIZE,
                     thumbY,
-                    thumbHeight
+                    thumbHeight,
+                    this.draggingTooltipScrollbar
             );
         }
     }
@@ -501,7 +542,7 @@ public class EzBalanceItemGroupScreen extends AbstractEzBalanceScreen {
         this.minecraft.setScreen(this.parent);
     }
 
-    private record RowHitbox(String groupId, int rowIndex, boolean plusRow, boolean deleteButton, boolean editButton) {
+    private record RowHitbox(String groupId, int rowIndex, boolean plusRow, boolean duplicateButton, boolean deleteButton, boolean editButton) {
     }
 
     private record TooltipLine(String text, int color) {

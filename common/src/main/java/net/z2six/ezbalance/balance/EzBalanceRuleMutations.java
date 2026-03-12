@@ -121,9 +121,14 @@ public final class EzBalanceRuleMutations {
         rule.rarityId = "";
         rule.appliedRarityAttributes.clear();
         rule.itemGroupIds.clear();
+        rule.itemGroupId = "";
+        rule.appliedItemGroupAttributes.clear();
         rule.appliedItemGroupAttributesByGroup.clear();
         rule.itemGroupEnchantRuleIds.clear();
         rule.attributeOverrides.clear();
+        rule.restrictEnchantments = false;
+        rule.allowedEnchantments.clear();
+        rule.blockedEnchantments.clear();
 
         Map<String, Double> original = EzBalanceRuntime.getOriginalAttributes(config, itemId);
         Map<String, Double> currentBase = EzBalanceRuntime.collectBaseAttributes(itemId);

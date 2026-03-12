@@ -68,6 +68,8 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
             if (hitbox != null) {
                 if (hitbox.plusRow()) {
                     this.minecraft.setScreen(new EzBalanceRarityEditScreen(this, this.config, ""));
+                } else if (hitbox.duplicateButton()) {
+                    duplicateRarity(hitbox.rarityId());
                 } else if (hitbox.deleteButton()) {
                     deleteRarity(hitbox.rarityId());
                 } else if (hitbox.editButton()) {
@@ -160,20 +162,23 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
                 String label = rarity == null || rarity.name.isBlank() || rarity.name.equals(rarityId)
                         ? rarityId
                         : rarity.name + " (" + rarityId + ")";
-                drawTrimmed(graphics, label, swatchX + 28, rowY + 7, listRight - listX - ACTION_BUTTON_WIDTH * 2 - 84, COLOR_TEXT);
+                drawTrimmed(graphics, label, swatchX + 28, rowY + 7, listRight - listX - ACTION_BUTTON_WIDTH * 3 - 92, COLOR_TEXT);
                 drawTrimmed(
                         graphics,
                         (rarity == null ? 0 : rarity.attributeValues.size()) + " attrs",
                         swatchX + 28,
                         rowY + 19,
-                        listRight - listX - ACTION_BUTTON_WIDTH * 2 - 84,
+                        listRight - listX - ACTION_BUTTON_WIDTH * 3 - 92,
                         COLOR_MUTED
                 );
 
+                int duplicateX = listRight - ACTION_BUTTON_WIDTH * 3 - 22;
                 int deleteX = listRight - ACTION_BUTTON_WIDTH * 2 - 16;
                 int editX = listRight - ACTION_BUTTON_WIDTH - 10;
+                boolean duplicateHovered = mouseX >= duplicateX && mouseX <= duplicateX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
                 boolean deleteHovered = mouseX >= deleteX && mouseX <= deleteX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
                 boolean editHovered = mouseX >= editX && mouseX <= editX + ACTION_BUTTON_WIDTH && mouseY >= rowY + 7 && mouseY <= rowY + 27;
+                drawInlineButton(graphics, duplicateX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Copy", false, duplicateHovered);
                 drawInlineButton(graphics, deleteX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Delete", false, deleteHovered);
                 drawInlineButton(graphics, editX, rowY + 7, ACTION_BUTTON_WIDTH, 20, "Edit", false, editHovered);
             } else if (rowIndex == rarityIds.size()) {
@@ -191,7 +196,7 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
         int thumbHeight = Math.max(18, getListHeight() * getVisibleRows() / Math.max(getVisibleRows(), totalRows));
         int maxTravel = Math.max(0, getListHeight() - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, x1, LIST_TOP, LIST_TOP + getListHeight(), TRACK_SIZE, thumbY, thumbHeight, this.draggingScrollbar);
     }
 
     private int getListX() {
@@ -249,13 +254,18 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
             return null;
         }
         if (rowIndex == rarityIds.size()) {
-            return new RowHitbox("", rowIndex, true, false, false);
+            return new RowHitbox("", rowIndex, true, false, false, false);
         }
 
         int rowY = LIST_TOP + visibleIndex * ROW_HEIGHT;
         int listRight = getListRight();
+        int duplicateX = listRight - ACTION_BUTTON_WIDTH * 3 - 22;
         int deleteX = listRight - ACTION_BUTTON_WIDTH * 2 - 16;
         int editX = listRight - ACTION_BUTTON_WIDTH - 10;
+        boolean duplicateButton = mouseX >= duplicateX
+                && mouseX <= duplicateX + ACTION_BUTTON_WIDTH
+                && mouseY >= rowY + 7
+                && mouseY <= rowY + 27;
         boolean deleteButton = mouseX >= deleteX
                 && mouseX <= deleteX + ACTION_BUTTON_WIDTH
                 && mouseY >= rowY + 7
@@ -264,7 +274,37 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
                 && mouseX <= editX + ACTION_BUTTON_WIDTH
                 && mouseY >= rowY + 7
                 && mouseY <= rowY + 27;
-        return new RowHitbox(rarityIds.get(rowIndex), rowIndex, false, deleteButton, editButton);
+        return new RowHitbox(rarityIds.get(rowIndex), rowIndex, false, duplicateButton, deleteButton, editButton);
+    }
+
+    private void duplicateRarity(String rarityId) {
+        EzBalanceRarityDefinition source = this.config.rarities.get(rarityId);
+        if (source == null) {
+            return;
+        }
+        String duplicateId = generateDuplicateId(rarityId);
+        EzBalanceRarityDefinition copy = new EzBalanceRarityDefinition();
+        copy.id = duplicateId;
+        copy.name = source.name == null || source.name.isBlank() ? duplicateId : source.name + " Copy";
+        copy.color = source.color;
+        copy.attributeModifiers.putAll(source.attributeModifiers);
+        copy.attributeValues.putAll(source.attributeValues);
+        this.config.rarities.put(duplicateId, copy);
+        persistChanges();
+        this.minecraft.setScreen(new EzBalanceRarityEditScreen(this, this.config, duplicateId));
+    }
+
+    private String generateDuplicateId(String rarityId) {
+        String root = sanitizeId(rarityId);
+        if (root.isBlank()) {
+            root = "rarity";
+        }
+        String candidate = root + "_copy";
+        int index = 2;
+        while (this.config.rarities.containsKey(candidate)) {
+            candidate = root + "_copy_" + index++;
+        }
+        return candidate;
     }
 
     private void deleteRarity(String rarityId) {
@@ -296,7 +336,7 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
 
     private void updateTooltipState(int mouseX, int mouseY) {
         RowHitbox hovered = getRowHitbox(mouseX, mouseY);
-        if (hovered != null && !hovered.plusRow() && !hovered.deleteButton() && !hovered.editButton()) {
+        if (hovered != null && !hovered.plusRow() && !hovered.duplicateButton() && !hovered.deleteButton() && !hovered.editButton()) {
             if (!hovered.rarityId().equals(this.activeTooltipRarityId)) {
                 this.tooltipScrollLine = 0;
             }
@@ -343,7 +383,8 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
                     bounds.y2() - TOOLTIP_PADDING,
                     TOOLTIP_TRACK_SIZE,
                     thumbY,
-                    thumbHeight
+                    thumbHeight,
+                    this.draggingTooltipScrollbar
             );
         }
     }
@@ -505,7 +546,7 @@ public class EzBalanceRarityScreen extends AbstractEzBalanceScreen {
         this.minecraft.setScreen(this.parent);
     }
 
-    private record RowHitbox(String rarityId, int rowIndex, boolean plusRow, boolean deleteButton, boolean editButton) {
+    private record RowHitbox(String rarityId, int rowIndex, boolean plusRow, boolean duplicateButton, boolean deleteButton, boolean editButton) {
     }
 
     private record TooltipLine(String text, int color) {

@@ -203,7 +203,7 @@ public class EzBalanceItemGroupEnchantmentScreen extends AbstractEzBalanceScreen
         int thumbHeight = Math.max(18, trackHeight * getVisibleRows() / Math.max(getVisibleRows(), rowCount));
         int maxTravel = Math.max(0, trackHeight - thumbHeight);
         int thumbY = LIST_TOP + (getMaxScrollRow() == 0 ? 0 : maxTravel * this.scrollRow / getMaxScrollRow());
-        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, LIST_TOP, LIST_TOP + trackHeight, TRACK_WIDTH, thumbY, thumbHeight);
+        EzBalanceUi.drawVerticalScrollbar(graphics, trackX, LIST_TOP, LIST_TOP + trackHeight, TRACK_WIDTH, thumbY, thumbHeight, this.draggingScrollbar);
     }
 
     private String trimToWidth(String text, int width) {
