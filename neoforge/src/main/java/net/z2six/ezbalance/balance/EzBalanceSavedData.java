@@ -35,7 +35,7 @@ public final class EzBalanceSavedData extends SavedData {
     }
 
     public EzBalanceConfig getConfig() {
-        return this.config.normalize();
+        return this.config;
     }
 
     public void setConfig(EzBalanceConfig config) {

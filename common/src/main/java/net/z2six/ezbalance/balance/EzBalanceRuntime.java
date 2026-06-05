@@ -173,6 +173,10 @@ public final class EzBalanceRuntime {
         return resolved;
     }
 
+    public static boolean hasAttributeRules(EzBalanceConfig config, String itemId) {
+        return EzBalanceHotPathRules.hasAttributeRules(config, itemId);
+    }
+
     public static double applyNormalization(EzBalanceConfig config, String itemId, String attributeId, double targetValue) {
         String normalized = normalizeAttributeId(attributeId);
         if (config == null || config.normalization == null || !config.normalization.enabled || normalized.isBlank()) {
@@ -368,12 +372,7 @@ public final class EzBalanceRuntime {
     }
 
     public static boolean hasCustomEnchantmentRules(EzBalanceConfig config, String itemId) {
-        EzBalanceItemRule rule = config.items.get(itemId);
-        if (rule != null && rule.hasCustomEnchantmentRules()) {
-            return true;
-        }
-        return getAssignedItemGroupsWithEnchantRules(config, itemId).stream()
-                .anyMatch(itemGroup -> itemGroup.forceDisabledEnchants || !itemGroup.allowedEnchantments.isEmpty());
+        return EzBalanceHotPathRules.hasCustomEnchantmentRules(config, itemId);
     }
 
     public static EzBalanceItemGroupDefinition getAssignedItemGroup(EzBalanceConfig config, String itemId) {

@@ -8,7 +8,7 @@ public final class EzBalanceClientState {
     private EzBalanceClientState() {}
 
     public static EzBalanceConfig getConfig() {
-        return config.normalize();
+        return config;
     }
 
     public static void setConfig(EzBalanceConfig config) {

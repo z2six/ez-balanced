@@ -27,6 +27,10 @@ public final class EzBalanceHooks {
     public static void onItemAttributes(ItemAttributeModifierEvent event) {
         EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         String itemId = EzBalanceRuntime.getItemId(event.getItemStack());
+        if (!EzBalanceRuntime.hasAttributeRules(config, itemId)) {
+            return;
+        }
+
         Map<String, Double> overrides = EzBalanceRuntime.resolveAttributeOverrides(config, itemId);
         if (overrides.isEmpty()) {
             return;
@@ -85,17 +89,21 @@ public final class EzBalanceHooks {
     public static void onEnchantmentLevels(GetEnchantmentLevelEvent event) {
         EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         String itemId = EzBalanceRuntime.getItemId(event.getStack());
+        if (!EzBalanceRuntime.hasCustomEnchantmentRules(config, itemId)) {
+            return;
+        }
+
         event.getEnchantments().removeIf(holder -> !EzBalanceRuntime.isEnchantmentAllowed(config, itemId, holder));
     }
 
     public static void onAnvilUpdate(AnvilUpdateEvent event) {
-        EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         ItemStack left = event.getLeft();
         ItemStack right = event.getRight();
         if (left.isEmpty() || right.isEmpty()) {
             return;
         }
 
+        EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         String itemId = EzBalanceRuntime.getItemId(left);
         if (!EzBalanceRuntime.hasCustomEnchantmentRules(config, itemId)) {
             return;
@@ -147,6 +155,10 @@ public final class EzBalanceHooks {
     public static void onPlayerEnchant(PlayerEnchantItemEvent event) {
         EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         String itemId = EzBalanceRuntime.getItemId(event.getEnchantedItem());
+        if (!EzBalanceRuntime.hasCustomEnchantmentRules(config, itemId)) {
+            return;
+        }
+
         EnchantmentHelper.updateEnchantments(event.getEnchantedItem(), mutable -> mutable.removeIf(holder -> !EzBalanceRuntime.isEnchantmentAllowed(config, itemId, holder)));
     }
 }

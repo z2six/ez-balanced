@@ -29,6 +29,10 @@ public abstract class EnchantmentHelperMixin {
     ) {
         EzBalanceConfig config = EzBalanceRuntimeState.getEffectiveConfig();
         String itemId = EzBalanceRuntime.getItemId(stack);
+        if (!EzBalanceRuntime.hasCustomEnchantmentRules(config, itemId)) {
+            return;
+        }
+
         List<EnchantmentInstance> results = new ArrayList<>();
 
         enchantments.forEach(holder -> {
