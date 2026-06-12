@@ -7,7 +7,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
 import net.z2six.ezbalance.balance.EzBalanceRuntimeState;
-import net.z2six.ezbalance.balance.EzBalanceSavedData;
+import net.z2six.ezbalance.config.EzBalanceConfigStore;
 import net.z2six.ezbalance.config.EzBalanceServerConfig;
 
 public final class EzBalanceNetwork {
@@ -23,12 +23,12 @@ public final class EzBalanceNetwork {
     }
 
     public static void sync(ServerPlayer player, boolean openEditor) {
-        EzBalanceConfig config = EzBalanceSavedData.get(player.server).getConfig();
+        EzBalanceConfig config = EzBalanceConfigStore.get(player.server);
         PacketDistributor.sendToPlayer(player, new SyncBalancePayload(config.toJson(), openEditor));
     }
 
     public static void syncAll(ServerPlayer triggerPlayer) {
-        EzBalanceConfig config = EzBalanceSavedData.get(triggerPlayer.server).getConfig();
+        EzBalanceConfig config = EzBalanceConfigStore.get(triggerPlayer.server);
         PacketDistributor.sendToAllPlayers(new SyncBalancePayload(config.toJson(), false));
     }
 
@@ -42,7 +42,7 @@ public final class EzBalanceNetwork {
                 return;
             }
 
-            EzBalanceSavedData.get(player.server).setConfig(EzBalanceConfig.fromJson(payload.json()));
+            EzBalanceConfigStore.set(player.server, EzBalanceConfig.fromJson(payload.json()));
             syncAll(player);
         });
     }

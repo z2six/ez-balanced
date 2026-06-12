@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class EzBalanceRuntimeHotPathTest {
     private static final String ATTACK_DAMAGE_ATTRIBUTE_ID = "minecraft:generic.attack_damage";
@@ -52,5 +53,41 @@ class EzBalanceRuntimeHotPathTest {
         assertFalse(EzBalanceHotPathRules.hasCustomEnchantmentRules(config, "example:plain"));
         assertTrue(EzBalanceHotPathRules.hasCustomEnchantmentRules(config, "example:direct"));
         assertTrue(EzBalanceHotPathRules.hasCustomEnchantmentRules(config, "example:group"));
+    }
+
+    @Test
+    void brandedTooltipLinesAreNotShownForManagedItems() {
+        EzBalanceConfig config = EzBalanceConfig.createDefault();
+        EzBalanceItemRule rule = new EzBalanceItemRule();
+        rule.attributeOverrides.put(ATTACK_DAMAGE_ATTRIBUTE_ID, 8.0D);
+        config.items.put("example:attribute", rule);
+
+        assertFalse(EzBalanceTooltipPolicy.shouldShowManagedByModLine(config, "example:attribute"));
+    }
+
+    @Test
+    void exposesOriginalAndCurrentAttributeValuesForClientDisplay() {
+        EzBalanceConfig config = EzBalanceConfig.createDefault();
+        config.originalAttributes.put(
+                "example:sword",
+                new java.util.LinkedHashMap<>(java.util.Map.of(ATTACK_DAMAGE_ATTRIBUTE_ID, 7.0D))
+        );
+
+        EzBalanceItemRule rule = new EzBalanceItemRule();
+        rule.attributeOverrides.put(ATTACK_DAMAGE_ATTRIBUTE_ID, 9.0D);
+        config.items.put("example:sword", rule);
+
+        EzBalanceAttributeValue value = EzBalanceAttributeValues.getAttributeValue(
+                config,
+                "example:sword",
+                "minecraft:attack_damage",
+                java.util.Map.of(ATTACK_DAMAGE_ATTRIBUTE_ID, 7.0D),
+                java.util.Map.of(ATTACK_DAMAGE_ATTRIBUTE_ID, 9.0D)
+        );
+
+        assertEquals(ATTACK_DAMAGE_ATTRIBUTE_ID, value.attributeId());
+        assertEquals(7.0D, value.originalValue());
+        assertEquals(9.0D, value.currentValue());
+        assertTrue(value.isChanged());
     }
 }

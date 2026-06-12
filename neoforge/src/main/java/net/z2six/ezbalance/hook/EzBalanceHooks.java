@@ -79,11 +79,6 @@ public final class EzBalanceHooks {
             event.getToolTip().add(Math.min(1, event.getToolTip().size()), Component.literal("Rarity: ").append(rarityLine));
         }
 
-        for (Component line : EzBalanceRuntime.createTooltipLines(config, itemId)) {
-            if (!line.getString().isBlank()) {
-                event.getToolTip().add(line);
-            }
-        }
     }
 
     public static void onEnchantmentLevels(GetEnchantmentLevelEvent event) {

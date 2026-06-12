@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.z2six.ezbalance.balance.EzBalanceAttributeValue;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
 import net.z2six.ezbalance.balance.EzBalanceItemRule;
 import net.z2six.ezbalance.balance.EzBalanceRuleMutations;
@@ -13,12 +14,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 public class EzBalanceAttributeBatchScreen extends AbstractEzBalanceScreen {
     private static final int LIST_TOP = 92;
-    private static final int ROW_HEIGHT = 36;
+    private static final int ROW_HEIGHT = 46;
     private static final int TRACK_WIDTH = 4;
     private static final int ATTRIBUTE_BOX_WIDTH = 520;
     private static final int VALUE_BOX_WIDTH = 120;
@@ -45,6 +47,7 @@ public class EzBalanceAttributeBatchScreen extends AbstractEzBalanceScreen {
         this.config = config;
         this.targetItems = new LinkedHashSet<>(targetItems);
         this.allowLockedEdits = allowLockedEdits;
+        EzBalanceRuntime.captureOriginalAttributes(this.config, this.targetItems);
         LinkedHashSet<String> unique = new LinkedHashSet<>(attributeIds);
         unique.forEach(attributeId -> addRow(attributeId, ""));
     }
@@ -169,9 +172,27 @@ public class EzBalanceAttributeBatchScreen extends AbstractEzBalanceScreen {
                 .toList();
     }
 
+    private String getFirstEditableItem() {
+        return getEditableItems().stream().findFirst().orElse("");
+    }
+
     private boolean isLocked(String itemId) {
         EzBalanceItemRule rule = this.config.items.get(itemId);
         return rule != null && rule.locked;
+    }
+
+    private String formatAttributeValueSummary(String itemId, String attributeId) {
+        EzBalanceAttributeValue value = EzBalanceRuntime.getAttributeValue(this.config, itemId, attributeId);
+        return "Original: " + formatValue(value.originalValue()) + "  Current: " + formatValue(value.currentValue());
+    }
+
+    private String formatValue(Double value) {
+        if (value == null) {
+            return "-";
+        }
+        return Math.abs(value - Math.rint(value)) < 0.005D
+                ? String.format(Locale.ROOT, "%.0f", value)
+                : String.format(Locale.ROOT, "%.2f", value);
     }
 
     @Override
@@ -249,6 +270,11 @@ public class EzBalanceAttributeBatchScreen extends AbstractEzBalanceScreen {
             boolean hovered = mouseX >= 24 && mouseX <= listRight && mouseY >= rowY && mouseY <= rowY + ROW_HEIGHT - 4;
             graphics.fill(24, rowY, listRight, rowY + ROW_HEIGHT - 4, hovered ? (0x22111111 | COLOR_ACCENT) : (visibleIndex % 2 == 0 ? COLOR_SURFACE : COLOR_SURFACE_ALT));
             if (index < this.attributeBoxes.size()) {
+                String firstItem = getFirstEditableItem();
+                String attributeId = EzBalanceRuntime.normalizeAttributeId(this.attributeBoxes.get(index).getValue());
+                if (!firstItem.isBlank() && !attributeId.isBlank()) {
+                    drawLabel(graphics, formatAttributeValueSummary(firstItem, attributeId), 34, rowY + 31, false);
+                }
                 int deleteX = listRight - DELETE_BUTTON_WIDTH - 8;
                 boolean deleteHovered = mouseX >= deleteX && mouseX <= deleteX + DELETE_BUTTON_WIDTH && mouseY >= rowY + 8 && mouseY <= rowY + 28;
                 drawInlineButton(graphics, deleteX, rowY + 8, DELETE_BUTTON_WIDTH, 20, "Delete", false, deleteHovered);

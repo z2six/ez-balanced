@@ -8,6 +8,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.z2six.ezbalance.client.EzBalanceClient;
+import net.z2six.ezbalance.config.EzBalanceConfigStore;
 import net.z2six.ezbalance.config.EzBalanceServerConfig;
 import net.z2six.ezbalance.hook.EzBalanceHooks;
 import net.z2six.ezbalance.network.EzBalanceNetwork;
@@ -26,6 +27,7 @@ public class EZBalance {
         NeoForge.EVENT_BUS.addListener(EzBalanceHooks::onAnvilUpdate);
         NeoForge.EVENT_BUS.addListener(EzBalanceHooks::onPlayerEnchant);
         NeoForge.EVENT_BUS.addListener(this::onPlayerLogin);
+        NeoForge.EVENT_BUS.addListener(this::onServerStopping);
 
         if (FMLEnvironment.dist.isClient()) {
             EzBalanceClient.init(eventBus);
@@ -37,5 +39,9 @@ public class EZBalance {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             EzBalanceNetwork.sync(player, false);
         }
+    }
+
+    private void onServerStopping(net.neoforged.neoforge.event.server.ServerStoppingEvent event) {
+        EzBalanceConfigStore.clearCache();
     }
 }

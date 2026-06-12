@@ -2,6 +2,7 @@ package net.z2six.ezbalance.balance;
 
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
+import net.z2six.ezbalance.config.EzBalanceConfigStore;
 
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -21,7 +22,7 @@ public final class EzBalanceRuntimeState {
             return EzBalanceConfig.createDefault();
         }
 
-        return EzBalanceSavedData.get(ServerLifecycleHooks.getCurrentServer()).getConfig();
+        return EzBalanceConfigStore.get(ServerLifecycleHooks.getCurrentServer());
     }
 
     public static void setClientConfigSupplier(Supplier<EzBalanceConfig> supplier) {

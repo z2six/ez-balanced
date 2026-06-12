@@ -26,15 +26,15 @@ public final class EzBalanceConfig {
         EzBalanceConfig config = new EzBalanceConfig();
 
         EzBalanceTabDefinition weapons = new EzBalanceTabDefinition("weapons", "Weapons", "minecraft:diamond_sword");
-        weapons.requiredAttributes.add(EzBalanceRuntime.ATTACK_DAMAGE_ATTRIBUTE_ID);
-        weapons.displayAttributes.add(EzBalanceRuntime.ATTACK_DAMAGE_ATTRIBUTE_ID);
+        weapons.requiredAttributes.add(EzBalanceAttributeIds.ATTACK_DAMAGE_ATTRIBUTE_ID);
+        weapons.displayAttributes.add(EzBalanceAttributeIds.ATTACK_DAMAGE_ATTRIBUTE_ID);
         weapons.displayAttributes.add("minecraft:generic.attack_speed");
         weapons.displayAttributes.add("minecraft:generic.attack_knockback");
         config.tabs.put(weapons.id, weapons);
 
         EzBalanceTabDefinition armor = new EzBalanceTabDefinition("armor", "Armor", "minecraft:diamond_chestplate");
-        armor.requiredAttributes.add(EzBalanceRuntime.ARMOR_ATTRIBUTE_ID);
-        armor.displayAttributes.add(EzBalanceRuntime.ARMOR_ATTRIBUTE_ID);
+        armor.requiredAttributes.add(EzBalanceAttributeIds.ARMOR_ATTRIBUTE_ID);
+        armor.displayAttributes.add(EzBalanceAttributeIds.ARMOR_ATTRIBUTE_ID);
         armor.displayAttributes.add("minecraft:generic.armor_toughness");
         armor.displayAttributes.add("minecraft:generic.knockback_resistance");
         config.tabs.put(armor.id, armor);
@@ -86,13 +86,13 @@ public final class EzBalanceConfig {
 
         this.tabs.values().forEach(tab -> {
             tab.requiredAttributes = tab.requiredAttributes.stream()
-                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .map(EzBalanceAttributeIds::normalize)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             if (tab.excludedAttributes == null) {
                 tab.excludedAttributes = new LinkedHashSet<>();
             }
             tab.excludedAttributes = tab.excludedAttributes.stream()
-                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .map(EzBalanceAttributeIds::normalize)
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             tab.attributeRanges = normalizeAttributeMap(tab.attributeRanges);
@@ -125,7 +125,7 @@ public final class EzBalanceConfig {
             if (rarity.attributeModifiers.isEmpty() && rarity.attributeValues != null && !rarity.attributeValues.isEmpty()) {
                 rarity.attributeValues.forEach((attributeId, value) -> {
                     if (value != null) {
-                        rarity.attributeModifiers.put(EzBalanceRuntime.normalizeAttributeId(attributeId), Double.toString(value));
+                        rarity.attributeModifiers.put(EzBalanceAttributeIds.normalize(attributeId), Double.toString(value));
                     }
                 });
             }
@@ -165,13 +165,13 @@ public final class EzBalanceConfig {
                 rule.appliedItemGroupAttributesByGroup.put(
                         rule.itemGroupId,
                         rule.appliedItemGroupAttributes.stream()
-                                .map(EzBalanceRuntime::normalizeAttributeId)
+                                .map(EzBalanceAttributeIds::normalize)
                                 .filter(value -> !value.isBlank())
                                 .collect(Collectors.toCollection(LinkedHashSet::new))
                 );
             }
             rule.appliedRarityAttributes = rule.appliedRarityAttributes.stream()
-                    .map(EzBalanceRuntime::normalizeAttributeId)
+                    .map(EzBalanceAttributeIds::normalize)
                     .filter(value -> !value.isBlank())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             rule.itemGroupIds = rule.itemGroupIds.stream()
@@ -185,7 +185,7 @@ public final class EzBalanceConfig {
             rule.appliedItemGroupAttributesByGroup.replaceAll((groupId, attrs) -> attrs == null
                     ? new LinkedHashSet<>()
                     : attrs.stream()
-                            .map(EzBalanceRuntime::normalizeAttributeId)
+                            .map(EzBalanceAttributeIds::normalize)
                             .filter(value -> !value.isBlank())
                             .collect(Collectors.toCollection(LinkedHashSet::new)));
             rule.appliedItemGroupAttributesByGroup.entrySet().removeIf(entry -> entry.getKey() == null || entry.getKey().isBlank());
@@ -205,7 +205,7 @@ public final class EzBalanceConfig {
             this.normalization.attributes = new ArrayList<>();
         }
         this.normalization.attributes.forEach(rule -> {
-            rule.attributeId = EzBalanceRuntime.normalizeAttributeId(rule.attributeId);
+            rule.attributeId = EzBalanceAttributeIds.normalize(rule.attributeId);
         });
         this.normalization.attributes.removeIf(rule -> rule.attributeId == null || rule.attributeId.isBlank());
 
@@ -219,7 +219,7 @@ public final class EzBalanceConfig {
             return normalized;
         }
 
-        source.forEach((key, value) -> normalized.put(EzBalanceRuntime.normalizeAttributeId(key), value));
+        source.forEach((key, value) -> normalized.put(EzBalanceAttributeIds.normalize(key), value));
         return normalized;
     }
 
@@ -230,7 +230,7 @@ public final class EzBalanceConfig {
         }
 
         source.stream()
-                .map(EzBalanceRuntime::normalizeAttributeId)
+                .map(EzBalanceAttributeIds::normalize)
                 .filter(value -> !value.isBlank())
                 .forEach(normalized::add);
         return normalized;
@@ -243,7 +243,7 @@ public final class EzBalanceConfig {
         }
 
         source.forEach((key, value) -> {
-            String normalizedKey = EzBalanceRuntime.normalizeAttributeId(key);
+            String normalizedKey = EzBalanceAttributeIds.normalize(key);
             String normalizedValue = value == null ? "" : value.trim();
             if (!normalizedKey.isBlank() && !normalizedValue.isBlank()) {
                 normalized.put(normalizedKey, normalizedValue);

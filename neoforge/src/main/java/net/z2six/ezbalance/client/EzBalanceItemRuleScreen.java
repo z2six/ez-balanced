@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.z2six.ezbalance.balance.EzBalanceAttributeValue;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
 import net.z2six.ezbalance.balance.EzBalanceItemRule;
 import net.z2six.ezbalance.balance.EzBalanceRuleMutations;
@@ -12,6 +13,7 @@ import net.z2six.ezbalance.balance.EzBalanceRuntime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
@@ -29,6 +31,7 @@ public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
         this.parent = parent;
         this.config = config;
         this.targetItems = new LinkedHashSet<>(targetItems);
+        EzBalanceRuntime.captureOriginalAttributes(this.config, this.targetItems);
         this.attributeIds = new ArrayList<>(EzBalanceClientCatalog.getAllAttributeIds());
         this.selectedAttributeId = EzBalanceClientCatalog.firstOrFallback(this.attributeIds, EzBalanceRuntime.ATTACK_DAMAGE_ATTRIBUTE_ID);
     }
@@ -107,10 +110,13 @@ public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
         drawLabel(graphics, "Selected items: " + this.targetItems.size(), 24, 38, false);
         drawLabel(graphics, "Attribute: " + this.selectedAttributeId, 24, 78, false);
         drawLabel(graphics, "Rarity brush: " + (this.selectedRarityId.isBlank() ? "None" : this.selectedRarityId), 310, 30, false);
+        String first = this.targetItems.stream().findFirst().orElse("");
+        if (!first.isBlank()) {
+            drawLabel(graphics, "Selected value: " + formatAttributeValueSummary(first, this.selectedAttributeId), 24, 144, false);
+        }
 
         int y = 160;
         drawLabel(graphics, "Current overrides on first selected item", 24, y, true);
-        String first = this.targetItems.stream().findFirst().orElse("");
         EzBalanceItemRule rule = this.config.items.get(first);
         if (rule != null) {
             int line = 0;
@@ -118,7 +124,7 @@ public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
                 if (line >= 12) {
                     break;
                 }
-                drawLabel(graphics, entry.getKey() + " = " + entry.getValue(), 24, y + 18 + line * 14, false);
+                drawLabel(graphics, entry.getKey() + ": " + formatAttributeValueSummary(first, entry.getKey()), 24, y + 18 + line * 14, false);
                 line++;
             }
             drawLabel(graphics, "Allowed enchant overrides: " + rule.allowedEnchantments.size(), 24, y + 194, false);
@@ -131,5 +137,19 @@ public class EzBalanceItemRuleScreen extends AbstractEzBalanceScreen {
     @Override
     public void onClose() {
         this.minecraft.setScreen(this.parent);
+    }
+
+    private String formatAttributeValueSummary(String itemId, String attributeId) {
+        EzBalanceAttributeValue value = EzBalanceRuntime.getAttributeValue(this.config, itemId, attributeId);
+        return "Original " + formatValue(value.originalValue()) + " -> Current " + formatValue(value.currentValue());
+    }
+
+    private String formatValue(Double value) {
+        if (value == null) {
+            return "-";
+        }
+        return Math.abs(value - Math.rint(value)) < 0.005D
+                ? String.format(Locale.ROOT, "%.0f", value)
+                : String.format(Locale.ROOT, "%.2f", value);
     }
 }

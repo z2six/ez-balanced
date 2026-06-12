@@ -9,6 +9,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
+import net.z2six.ezbalance.balance.EzBalanceAttributeValue;
 import net.z2six.ezbalance.balance.EzBalanceConfig;
 import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
 import net.z2six.ezbalance.balance.EzBalanceItemRule;
@@ -1976,6 +1977,9 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
     }
 
     private String formatEditableValue(Double value) {
+        if (value == null) {
+            return "-";
+        }
         return Math.abs(value - Math.rint(value)) < 0.005
                 ? String.format(Locale.ROOT, "%.0f", value)
                 : String.format(Locale.ROOT, "%.2f", value);
@@ -2136,6 +2140,21 @@ public class EzBalanceScreen extends AbstractEzBalanceScreen {
             graphics.renderTooltip(
                     this.font,
                     List.of(Component.literal("Custom enchant rules")),
+                    java.util.Optional.empty(),
+                    mouseX,
+                    mouseY
+            );
+            return;
+        }
+        if (hoveredCell.kind() == CellKind.ATTRIBUTE && hoveredCell.attributeId() != null) {
+            EzBalanceAttributeValue value = EzBalanceRuntime.getAttributeValue(this.workingConfig, hoveredCell.itemId(), hoveredCell.attributeId());
+            graphics.renderTooltip(
+                    this.font,
+                    List.of(
+                            Component.literal(humanize(value.attributeId())),
+                            Component.literal("Original: " + formatEditableValue(value.originalValue())),
+                            Component.literal("Current: " + formatEditableValue(value.currentValue()))
+                    ),
                     java.util.Optional.empty(),
                     mouseX,
                     mouseY

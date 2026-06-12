@@ -3,7 +3,6 @@ package net.z2six.ezbalance.balance;
 import net.z2six.ezbalance.balance.EzBalanceAttributeNormalizationRule;
 import net.z2six.ezbalance.balance.EzBalanceItemGroupDefinition;
 
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -61,22 +60,7 @@ public final class EzBalanceRuntime {
     }
 
     public static String normalizeAttributeId(String attributeId) {
-        if (attributeId == null || attributeId.isBlank()) {
-            return "";
-        }
-
-        return switch (attributeId) {
-            case "minecraft:attack_damage" -> ATTACK_DAMAGE_ATTRIBUTE_ID;
-            case "minecraft:armor" -> ARMOR_ATTRIBUTE_ID;
-            case "minecraft:attack_speed" -> "minecraft:generic.attack_speed";
-            case "minecraft:armor_toughness" -> "minecraft:generic.armor_toughness";
-            case "minecraft:attack_knockback" -> "minecraft:generic.attack_knockback";
-            case "minecraft:luck" -> "minecraft:generic.luck";
-            case "minecraft:max_health" -> "minecraft:generic.max_health";
-            case "minecraft:movement_speed" -> "minecraft:generic.movement_speed";
-            case "minecraft:knockback_resistance" -> "minecraft:generic.knockback_resistance";
-            default -> attributeId;
-        };
+        return EzBalanceAttributeIds.normalize(attributeId);
     }
 
     public static Map<String, Double> collectBaseAttributes(Item item) {
@@ -313,6 +297,12 @@ public final class EzBalanceRuntime {
         }
 
         return config.originalAttributes.getOrDefault(itemId, Map.of());
+    }
+
+    public static EzBalanceAttributeValue getAttributeValue(EzBalanceConfig config, String itemId, String attributeId) {
+        Map<String, Double> base = getBaseAttributes(config, itemId);
+        Map<String, Double> resolved = config == null ? Map.of() : resolveAttributeOverrides(config, itemId);
+        return EzBalanceAttributeValues.getAttributeValue(config, itemId, attributeId, base, resolved);
     }
 
     public static Optional<EzBalanceItemRule> getRule(EzBalanceConfig config, String itemId) {
@@ -580,24 +570,7 @@ public final class EzBalanceRuntime {
     }
 
     public static List<Component> createTooltipLines(EzBalanceConfig config, String itemId) {
-        EzBalanceItemRule rule = config.items.get(itemId);
-        if (rule != null && rule.hasCustomEnchantmentRules()) {
-            return List.of(
-                    Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY),
-                    Component.literal("Custom enchant rules: " + (rule.allowedEnchantments.size() + rule.blockedEnchantments.size())).withStyle(ChatFormatting.DARK_GRAY)
-            );
-        }
-        List<EzBalanceItemGroupDefinition> itemGroups = getAssignedItemGroups(config, itemId);
-        if (!itemGroups.isEmpty()) {
-            long touched = itemGroups.stream()
-                    .mapToLong(itemGroup -> itemGroup.allowedEnchantments.size())
-                    .sum();
-            return List.of(
-                    Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY),
-                    Component.literal("Custom enchant rules: " + touched).withStyle(ChatFormatting.DARK_GRAY)
-            );
-        }
-        return List.of(Component.literal("Base stats managed by EZ Balance").withStyle(ChatFormatting.DARK_GRAY));
+        return EzBalanceTooltipPolicy.shouldShowManagedByModLine(config, itemId) ? List.of(Component.empty()) : List.of();
     }
 
     private static void applyRarityModifier(EzBalanceConfig config, String itemId, Map<String, Double> resolved, Map<String, Double> base, String attributeId, String modifierExpression) {
